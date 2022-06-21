@@ -1,34 +1,64 @@
+import
+  memory,
+  types
+
 type
-  Regs* = enum
-    rA, rF, rB, rC, rD, rE, rH, rL
-  Regs16* = enum
-    rAF, rBC, rDE, rHL
+  Register8* = enum
+    A, F, B, C, D, E, H, L
+  Register16* = enum
+    AF, BC, DE, HL
   Flags* = enum
-    fC = 1 shl 4,
-    fH = 1 shl 5,
-    fN = 1 shl 6,
-    fZ = 1 shl 7,
+    C = 1 shl 4,
+    H = 1 shl 5,
+    N = 1 shl 6,
+    Z = 1 shl 7,
   Cpu* = ref object
-    regs: array[Regs, uint8]
+    r: array[Register8, byte]
+    pc: Address
+    sp: Address
 
 proc newCpu*(): Cpu =
   Cpu()
 
-func `[]`*(self: Cpu; r: Regs): uint8 {.inline.} = self.regs[r]
+template register(name: untyped; index: Register8) {.dirty.} =
+  func `name`*(self: Cpu): byte {.inline.} = self.r[index]
+  func `name=`*(self: Cpu; v: byte) {.inline.} = self.r[index] = v
 
-func `[]=`*(self: Cpu; r: Regs; v: uint8) {.inline.} = self.regs[r] = v
+register(a, A)
 
-func `[]`*(self: Cpu; f: Flags): bool {.inline.} =
-  (self.regs[rF] and uint8(ord(f))) != 0
+register(b, B)
 
-func `[]=`*(self: Cpu; f: Flags; v: bool) {.inline.} =
-  if v:
-    self.regs[rF] = self.regs[rF] or uint8(ord(f))
-  else:
-    self.regs[rF] = self.regs[rF] and (not uint8(ord(f)))
+register(c, C)
 
-func `[]`*(self: var Cpu; r: Regs16): uint16 {.inline.} =
-  cast[ptr UncheckedArray[uint16]](addr self.regs[rA])[r.ord]
+register(d, D)
 
-func `[]=`*(self: var Cpu; r: Regs16; v: uint16) {.inline.} =
-  cast[ptr UncheckedArray[uint16]](addr self.regs[rA])[r.ord] = v
+register(e, E)
+
+register(h, H)
+
+register(l, L)
+
+template register(name: untyped; index: Register16) {.dirty.} =
+  func `name`*(self: Cpu): uint16 {.inline.} = cast[ptr UncheckedArray[uint16]](
+      addr self.r)[index.ord]
+  func `name=`*(self: Cpu; v: uint16) {.inline.} = cast[ptr UncheckedArray[
+      uint16]](addr self.r)[index.ord] = v
+
+register(af, AF)
+
+register(bc, BC)
+
+register(de, DE)
+
+register(hl, HL)
+
+func f*(self: Cpu; index: Flags): bool {.inline.} =
+  (self.r[F] and byte(index.ord)) != 0
+
+func setF*(self: Cpu; index: Flags) {.inline.} =
+  self.r[F] = self.r[F] or byte(index.ord)
+
+func clearF*(self: Cpu; index: Flags) {.inline.} =
+  self.r[F] = self.r[F] and (
+    not byte(index.ord))
+

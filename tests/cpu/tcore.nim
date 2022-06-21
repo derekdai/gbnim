@@ -12,13 +12,14 @@ import cpu
 
 block:
   var cpu = newCpu()
-  echo cpu[rA]
-  cpu[rB] = 123
-  echo cpu[rB]
-  cpu[rC] = 12
-  echo cpu[rC]
-  echo cpu[fC]
-  cpu[fC] = true
-  echo cpu[fC]
-  cpu[rBC] = 456
-  echo cpu[rBC]
+  echo cpu.a
+  cpu.b = 123
+  echo cpu.b
+  cpu.c = 12
+  echo cpu.c
+
+  echo cpu.f(C)
+  cpu.setF(C)
+  echo cpu.f(C)
+  cpu.bc = 456
+  echo cpu.bc

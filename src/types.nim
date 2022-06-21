@@ -1,0 +1,2 @@
+type
+  Address* = uint16
