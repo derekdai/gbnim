@@ -38,11 +38,10 @@ proc newRom*(buf: sink seq[byte]): Rom =
   Rom(buf: buf)
 
 method load*(self: Rom; a: Address; dest: pointer; length: uint16) =
-  debug "Rom.load"
   copyMem(dest, addr self.buf[a], length)
 
 method store*(self: var Rom; a: Address; src: pointer; length: uint16) =
-  debug "Rom.store"
+  discard
 
 type
   MemoryCtrl* = ref object

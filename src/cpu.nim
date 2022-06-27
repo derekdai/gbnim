@@ -144,6 +144,7 @@ proc value(pair: Reg16Imme8; cpu: var Sm83): uint16 {.inline.} =
       cpu.f.incl H
     else:
       cpu.f.excl H
+    cpu.f -= {Z, N}
   return uint16(r and 0xffff)
 
 proc value(_: Immediate8; cpu: var Sm83): uint8 {.inline.} = cpu.fetch()
@@ -285,7 +286,14 @@ proc opInc16[R: static Register16; I: static uint16](cpu: var Sm83; opcode: uint
   debug &"{opname} {R} => {R}=0x{cpu.r(R):04x}{cast[int16](I):+d}"
   cpu.r(R) += I
 
+proc `$`(_: Immediate8): string = "u8"
+proc `$`(_: Immediate16): string = "u16"
+proc `$`(r: Reg16Inc): string = &"{Register16(r.ord)}+"
+proc `$`(r: Reg16Dec): string = &"{Register16(r.ord)}-"
+proc `$`[T](i: Indirect[T]): string = &"({i.toT})"
+
 proc opLd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
+  debug &"LD {D},{S}"
   let v = S.value(cpu)
   D.setValue(cpu, v)
 
@@ -523,6 +531,8 @@ proc opCp[S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
     else:
       if al >= vl: {N, C}
       else: {N, H, C}
+
+proc opHalt(cpu: var Sm83; opcode: uint8): int = discard
 
 const cbOpcodes = [    
   (t: 0, entry: opCbUnimpl),
@@ -910,13 +920,13 @@ const opcodes = [
   (t: 4, entry: opLd[L, L]),
   (t: 8, entry: opLd[L, HL.indirect]),
   (t: 4, entry: opLd[L, A]),
-  (t: 8, entry: opLd[HL.indirect, B]),         # 0x60
+  (t: 8, entry: opLd[HL.indirect, B]),         # 0x70
   (t: 8, entry: opLd[HL.indirect, Register8.C]),
   (t: 8, entry: opLd[HL.indirect, D]),
   (t: 8, entry: opLd[HL.indirect, E]),
   (t: 8, entry: opLd[HL.indirect, Register8.H]),
   (t: 8, entry: opLd[HL.indirect, L]),
-  (t: 0, entry: opUnimpl),
+  (t: 4, entry: opHalt),
   (t: 8, entry: opLd[HL.indirect, A]),
   (t: 8, entry: opLd[HL.indirect, B]),
   (t: 8, entry: opLd[HL.indirect, Register8.C]),
@@ -924,7 +934,7 @@ const opcodes = [
   (t: 8, entry: opLd[HL.indirect, E]),
   (t: 8, entry: opLd[HL.indirect, Register8.H]),
   (t: 8, entry: opLd[HL.indirect, L]),
-  (t: 0, entry: opUnimpl),
+  (t: 8, entry: opLd[A, HL.indirect]),
   (t: 8, entry: opLd[HL.indirect, A]),
   (t: 0, entry: opUnimpl),         # 0x80
   (t: 0, entry: opUnimpl),

@@ -6,6 +6,17 @@ addHandler(newConsoleLogger(fmtStr = "[$time] $levelid "))
 setLogFilter(lvlDebug)
 
 type
+  SpriteAttrTable* = ref object of Memory
+
+proc newSpriteAttrTable*(): SpriteAttrTable = SpriteAttrTable()
+
+method load*(self: SpriteAttrTable; a: Address; dest: pointer; length: uint16) =
+  discard
+
+method store*(self: var SpriteAttrTable; a: Address; src: pointer; length: uint16) =
+  discard
+
+type
   Ram* = ref object of Memory
     buf: seq[byte]
 
@@ -61,6 +72,10 @@ proc main =
   mc.map(BOOTROM, bootrom)
   mc.map(ROM0, cartridge)
   mc.map(VRAM, newVideoRam())
+  mc.map(SRAM, newRam(8 * 1024))
+  mc.map(OAM, newSpriteAttrTable())
+  mc.map(WRAM0, newRam(4 * 1024))
+  mc.map(WRAMX, newRam(4 * 1024))
   mc.map(HRAM, newHighRam())
   mc.map(IOREGS, IoRegisters())
   var c = newSm83(mc)
