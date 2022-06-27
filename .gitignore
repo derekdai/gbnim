@@ -3,3 +3,8 @@ tests/cpu/tcore
 nimcache/
 outputGotten.txt
 tests/megatest*
+outputExpected.txt
+*.bin
+*.gb
+examples/hello
+.gdb_history

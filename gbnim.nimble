@@ -11,3 +11,5 @@ bin           = @["gbnim"]
 # Dependencies
 
 requires "nim >= 1.7.1"
+requires "sdl2"
+requires "libbacktrace"
