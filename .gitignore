@@ -8,3 +8,4 @@ outputExpected.txt
 *.gb
 examples/hello
 .gdb_history
+.vscode-ctags
