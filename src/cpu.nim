@@ -117,8 +117,16 @@ type
 const Immediate8Tag = Immediate8(0)
 const Immediate16Tag = Immediate16(0)
 
-converter toT[T](i: Indirect[T]): T = T(i)
-func indirect[T](v: T): Indirect[T] = Indirect[T](v)
+converter toT[T](i: Indirect[T]): T =
+  when T is enum:
+    T(i.ord)
+  else:
+    T(i)
+func indirect[T](v: T): Indirect[T] =
+  when T is enum:
+    Indirect[T](v.ord)
+  else:
+    Indirect[T](v)
 
 proc value(r: Register8; cpu: Sm83): uint8 {.inline.} = cpu.r(r)
 proc setValue(r: Register8; cpu: var Sm83; v: uint8) {.inline.} = cpu.r(r) = v
@@ -451,24 +459,28 @@ proc opCbUnimpl(cpu: var Sm83; opcode: uint8): int =
 proc nthBit(opcode: uint8; base: uint8): uint8 {.inline.} =
   (((opcode shr 4) - (base shr 4)) shl 1) + ((opcode shr 3) and 1)
 
-proc opBit(cpu: var Sm83; opcode: uint8): int =
-  let b = opcode.nthBit(0x40)
-  let r = opcode and 0x7
-  let v =
-    if r == 0x6:
-      debug &"BIT {b},(HL) => ((HL:0x{cpu.r(HL):04x}) shr {b}) & 1"
-      cpu.mctrl[cpu.r(HL)]
-    else:
-      let r = Register8(r)
-      debug &"BIT {b},{r} => ({r}:0x{cpu.r(r):02x} shr {b}) & 1"
-      cpu.r(Register8(r)) 
+proc opBit[B: static uint8; S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
+  debug &"BIT {B},{S}"
+  let v = S.value(cpu)
 
   cpu.f.excl N
   cpu.f.incl C
-  if v.testBit(b):
+  if v.testBit(B):
     cpu.f.excl Z
   else:
     cpu.f.incl Z
+
+proc opRes[B: static uint8; S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
+  debug &"RES {B},{S}"
+  var v = S.value(cpu)
+  v.clearBit(B)
+  S.setValue(cpu, v)
+
+proc opSet[B: static uint8; S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
+  debug &"RES {B},{S}"
+  var v = S.value(cpu)
+  v.setBit(B)
+  S.setValue(cpu, v)
 
 proc opRl(cpu: var Sm83; opcode: uint8): int =
   ## C <- [7 <- 0] <- C
@@ -517,12 +529,7 @@ proc opCp[S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
   let vl = v and 0b1111
   let a = cpu.r(A)
   let al = a and 0b1111
-  when S is Register8:
-    debug &"CP A,{S} => Z:(A:0x{a:02x}=={S}:0x{v:02x}), C:0x{a:02x}<0x{v:02x}, H:0x{a and 0b1111:x}<0x{v and 0b1111:x}"
-  elif S is Indirect[Register16]:
-    debug &"CP A,(HL) => Z:(A:0x{a:02x}==(HL:{cpu.r(Register16(S))}):0x{v:02x}), C:0x{a:02x}<0x{v:02x}, H:0x{a and 0b1111:x}<0x{v and 0b1111:x}"
-  elif S is Immediate8:
-    debug &"CP A,u8 => Z:(A:0x{a:02x}==0x{v:02x}), C:0x{a:02x}<0x{v:02x}, H:0x{a and 0b1111:x}<0x{v and 0b1111:x}"
+  debug &"CP A,{S}"
   cpu.f =
     if a == v: {N, Z}
     elif a > v:
@@ -532,7 +539,45 @@ proc opCp[S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
       if al >= vl: {N, C}
       else: {N, H, C}
 
-proc opHalt(cpu: var Sm83; opcode: uint8): int = discard
+proc opHalt(cpu: var Sm83; opcode: uint8): int =
+  debug "HALT"
+  while true: discard
+
+proc opAdd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
+  let s = S.value(cpu)
+  let d = D.value(cpu)
+  #let c = (opcode and 0xf) >= 8: (
+  let r = d.uint16 + s
+  debug &"ADD A,{S}"
+  if (r and 0xff) == 0:
+    cpu.f.incl Z
+  else:
+    cpu.f.excl Z
+  if r shr 8 != 0:
+    cpu.f.incl C
+  else:
+    cpu.f.excl C
+  if ((d and 0xf) + (s and 0xf)) shr 4 != 0:
+    cpu.f.incl H
+  else:
+    cpu.f.excl H
+  D.setValue(cpu, uint8(r and 0xff))
+
+proc opAdd16[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
+  let s = S.value(cpu)
+  let d = D.value(cpu)
+  let r = d.uint32 + s
+  debug &"ADD {D},{S}"
+  cpu.f.excl N
+  if r shr 16 != 0:
+    cpu.f.incl C
+  else:
+    cpu.f.excl C
+  if ((d and 0xfff) + (s and 0xfff)) shr 12 != 0:
+    cpu.f.incl H
+  else:
+    cpu.f.excl H
+  D.setValue(cpu, uint16(r and 0xffff))
 
 const cbOpcodes = [    
   (t: 0, entry: opCbUnimpl),
@@ -599,198 +644,198 @@ const cbOpcodes = [
   (t: 0, entry: opCbUnimpl),
   (t: 0, entry: opCbUnimpl),
   (t: 0, entry: opCbUnimpl),
-  (t: 4, entry: opBit),         # 0x40
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),         # 0x50
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),         # 0x60
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),         # 0x70
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 4, entry: opBit),
-  (t: 0, entry: opCbUnimpl),         # 0x80
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),         # 0x90
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),         # 0xa0
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),         # 0xb0
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),         # 0xc0
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),         # 0xd0
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),         # 0xe0
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),         # 0xf0
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
+  (t: 4, entry: opBit[0, B]),         # 0x40
+  (t: 4, entry: opBit[0, Register8.C]),
+  (t: 4, entry: opBit[0, D]),
+  (t: 4, entry: opBit[0, E]),
+  (t: 4, entry: opBit[0, L]),
+  (t: 4, entry: opBit[0, Register8.H]),
+  (t: 8, entry: opBit[0, HL.indirect]),
+  (t: 4, entry: opBit[0, A]),
+  (t: 4, entry: opBit[1, B]),
+  (t: 4, entry: opBit[1, Register8.C]),
+  (t: 4, entry: opBit[1, D]),
+  (t: 4, entry: opBit[1, E]),
+  (t: 4, entry: opBit[1, L]),
+  (t: 4, entry: opBit[1, Register8.H]),
+  (t: 8, entry: opBit[1, HL.indirect]),
+  (t: 4, entry: opBit[1, A]),
+  (t: 4, entry: opBit[2, B]),         # 0x50
+  (t: 4, entry: opBit[2, Register8.C]),
+  (t: 4, entry: opBit[2, D]),
+  (t: 4, entry: opBit[2, E]),
+  (t: 4, entry: opBit[2, L]),
+  (t: 4, entry: opBit[2, Register8.H]),
+  (t: 8, entry: opBit[2, HL.indirect]),
+  (t: 4, entry: opBit[2, A]),
+  (t: 4, entry: opBit[3, B]),
+  (t: 4, entry: opBit[3, Register8.C]),
+  (t: 4, entry: opBit[3, D]),
+  (t: 4, entry: opBit[3, E]),
+  (t: 4, entry: opBit[3, L]),
+  (t: 4, entry: opBit[3, Register8.H]),
+  (t: 8, entry: opBit[3, HL.indirect]),
+  (t: 4, entry: opBit[3, A]),
+  (t: 4, entry: opBit[4, B]),         # 0x60
+  (t: 4, entry: opBit[4, Register8.C]),
+  (t: 4, entry: opBit[4, D]),
+  (t: 4, entry: opBit[4, E]),
+  (t: 4, entry: opBit[4, L]),
+  (t: 4, entry: opBit[4, Register8.H]),
+  (t: 8, entry: opBit[4, HL.indirect]),
+  (t: 4, entry: opBit[4, A]),
+  (t: 4, entry: opBit[5, B]),
+  (t: 4, entry: opBit[5, Register8.C]),
+  (t: 4, entry: opBit[5, D]),
+  (t: 4, entry: opBit[5, E]),
+  (t: 4, entry: opBit[5, L]),
+  (t: 4, entry: opBit[5, Register8.H]),
+  (t: 8, entry: opBit[5, HL.indirect]),
+  (t: 4, entry: opBit[5, A]),
+  (t: 4, entry: opBit[6, B]),         # 0x70
+  (t: 4, entry: opBit[6, Register8.C]),
+  (t: 4, entry: opBit[6, D]),
+  (t: 4, entry: opBit[6, E]),
+  (t: 4, entry: opBit[6, L]),
+  (t: 4, entry: opBit[6, Register8.H]),
+  (t: 8, entry: opBit[6, HL.indirect]),
+  (t: 4, entry: opBit[6, A]),
+  (t: 4, entry: opBit[7, B]),
+  (t: 4, entry: opBit[7, Register8.C]),
+  (t: 4, entry: opBit[7, D]),
+  (t: 4, entry: opBit[7, E]),
+  (t: 4, entry: opBit[7, L]),
+  (t: 4, entry: opBit[7, Register8.H]),
+  (t: 8, entry: opBit[7, HL.indirect]),
+  (t: 4, entry: opBit[7, A]),
+  (t: 4, entry: opRes[0, B]),         # 0x80
+  (t: 4, entry: opRes[0, Register8.C]),
+  (t: 4, entry: opRes[0, D]),
+  (t: 4, entry: opRes[0, E]),
+  (t: 4, entry: opRes[0, L]),
+  (t: 4, entry: opRes[0, Register8.H]),
+  (t: 8, entry: opRes[0, HL.indirect]),
+  (t: 4, entry: opRes[0, A]),
+  (t: 4, entry: opRes[1, B]),
+  (t: 4, entry: opRes[1, Register8.C]),
+  (t: 4, entry: opRes[1, D]),
+  (t: 4, entry: opRes[1, E]),
+  (t: 4, entry: opRes[1, L]),
+  (t: 4, entry: opRes[1, Register8.H]),
+  (t: 8, entry: opRes[1, HL.indirect]),
+  (t: 4, entry: opRes[1, A]),
+  (t: 4, entry: opRes[2, B]),         # 0x90
+  (t: 4, entry: opRes[2, Register8.C]),
+  (t: 4, entry: opRes[2, D]),
+  (t: 4, entry: opRes[2, E]),
+  (t: 4, entry: opRes[2, L]),
+  (t: 4, entry: opRes[2, Register8.H]),
+  (t: 8, entry: opRes[2, HL.indirect]),
+  (t: 4, entry: opRes[2, A]),
+  (t: 4, entry: opRes[3, B]),
+  (t: 4, entry: opRes[3, Register8.C]),
+  (t: 4, entry: opRes[3, D]),
+  (t: 4, entry: opRes[3, E]),
+  (t: 4, entry: opRes[3, L]),
+  (t: 4, entry: opRes[3, Register8.H]),
+  (t: 8, entry: opRes[3, HL.indirect]),
+  (t: 4, entry: opRes[3, A]),
+  (t: 4, entry: opRes[4, B]),         # 0xa0
+  (t: 4, entry: opRes[4, Register8.C]),
+  (t: 4, entry: opRes[4, D]),
+  (t: 4, entry: opRes[4, E]),
+  (t: 4, entry: opRes[4, L]),
+  (t: 4, entry: opRes[4, Register8.H]),
+  (t: 8, entry: opRes[4, HL.indirect]),
+  (t: 4, entry: opRes[4, A]),
+  (t: 4, entry: opRes[5, B]),
+  (t: 4, entry: opRes[5, Register8.C]),
+  (t: 4, entry: opRes[5, D]),
+  (t: 4, entry: opRes[5, E]),
+  (t: 4, entry: opRes[5, L]),
+  (t: 4, entry: opRes[5, Register8.H]),
+  (t: 8, entry: opRes[5, HL.indirect]),
+  (t: 4, entry: opRes[5, A]),
+  (t: 4, entry: opRes[6, B]),         # 0xb0
+  (t: 4, entry: opRes[6, Register8.C]),
+  (t: 4, entry: opRes[6, D]),
+  (t: 4, entry: opRes[6, E]),
+  (t: 4, entry: opRes[6, L]),
+  (t: 4, entry: opRes[6, Register8.H]),
+  (t: 8, entry: opRes[6, HL.indirect]),
+  (t: 4, entry: opRes[6, A]),
+  (t: 4, entry: opRes[7, B]),
+  (t: 4, entry: opRes[7, Register8.C]),
+  (t: 4, entry: opRes[7, D]),
+  (t: 4, entry: opRes[7, E]),
+  (t: 4, entry: opRes[7, L]),
+  (t: 4, entry: opRes[7, Register8.H]),
+  (t: 8, entry: opRes[7, HL.indirect]),
+  (t: 4, entry: opRes[7, A]),
+  (t: 4, entry: opSet[0, B]),         # 0xc0
+  (t: 4, entry: opSet[0, Register8.C]),
+  (t: 4, entry: opSet[0, D]),
+  (t: 4, entry: opSet[0, E]),
+  (t: 4, entry: opSet[0, L]),
+  (t: 4, entry: opSet[0, Register8.H]),
+  (t: 8, entry: opSet[0, HL.indirect]),
+  (t: 4, entry: opSet[0, A]),
+  (t: 4, entry: opSet[1, B]),
+  (t: 4, entry: opSet[1, Register8.C]),
+  (t: 4, entry: opSet[1, D]),
+  (t: 4, entry: opSet[1, E]),
+  (t: 4, entry: opSet[1, L]),
+  (t: 4, entry: opSet[1, Register8.H]),
+  (t: 8, entry: opSet[1, HL.indirect]),
+  (t: 4, entry: opSet[1, A]),
+  (t: 4, entry: opSet[2, B]),         # 0xd0
+  (t: 4, entry: opSet[2, Register8.C]),
+  (t: 4, entry: opSet[2, D]),
+  (t: 4, entry: opSet[2, E]),
+  (t: 4, entry: opSet[2, L]),
+  (t: 4, entry: opSet[2, Register8.H]),
+  (t: 8, entry: opSet[2, HL.indirect]),
+  (t: 4, entry: opSet[2, A]),
+  (t: 4, entry: opSet[3, B]),
+  (t: 4, entry: opSet[3, Register8.C]),
+  (t: 4, entry: opSet[3, D]),
+  (t: 4, entry: opSet[3, E]),
+  (t: 4, entry: opSet[3, L]),
+  (t: 4, entry: opSet[3, Register8.H]),
+  (t: 8, entry: opSet[3, HL.indirect]),
+  (t: 4, entry: opSet[3, A]),
+  (t: 4, entry: opSet[4, B]),         # 0xe0
+  (t: 4, entry: opSet[4, Register8.C]),
+  (t: 4, entry: opSet[4, D]),
+  (t: 4, entry: opSet[4, E]),
+  (t: 4, entry: opSet[4, L]),
+  (t: 4, entry: opSet[4, Register8.H]),
+  (t: 8, entry: opSet[4, HL.indirect]),
+  (t: 4, entry: opSet[4, A]),
+  (t: 4, entry: opSet[5, B]),
+  (t: 4, entry: opSet[5, Register8.C]),
+  (t: 4, entry: opSet[5, D]),
+  (t: 4, entry: opSet[5, E]),
+  (t: 4, entry: opSet[5, L]),
+  (t: 4, entry: opSet[5, Register8.H]),
+  (t: 8, entry: opSet[5, HL.indirect]),
+  (t: 4, entry: opSet[5, A]),
+  (t: 4, entry: opSet[6, B]),         # 0xf0
+  (t: 4, entry: opSet[6, Register8.C]),
+  (t: 4, entry: opSet[6, D]),
+  (t: 4, entry: opSet[6, E]),
+  (t: 4, entry: opSet[6, L]),
+  (t: 4, entry: opSet[6, Register8.H]),
+  (t: 8, entry: opSet[6, HL.indirect]),
+  (t: 4, entry: opSet[6, A]),
+  (t: 4, entry: opSet[7, B]),
+  (t: 4, entry: opSet[7, Register8.C]),
+  (t: 4, entry: opSet[7, D]),
+  (t: 4, entry: opSet[7, E]),
+  (t: 4, entry: opSet[7, L]),
+  (t: 4, entry: opSet[7, Register8.H]),
+  (t: 8, entry: opSet[7, HL.indirect]),
+  (t: 4, entry: opSet[7, A]),
 ]
 
 proc prefixCb(cpu: var Sm83; opcode: uint8): int =
@@ -817,7 +862,7 @@ const opcodes = [
   (t: 8, entry: opLd[B, Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 0, entry: opLd[Immediate16Tag.indirect, SP]),
-  (t: 0, entry: opUnimpl),
+  (t: 8, entry: opAdd16[HL, BC]),
   (t: 8, entry: opLd[A, BC.indirect]),
   (t: 8, entry: opInc16[BC, 0xffff]),
   (t: 4, entry: opInc[4, 1]),
@@ -833,7 +878,7 @@ const opcodes = [
   (t: 8, entry: opLd[D, Immediate8Tag]),
   (t: 0, entry: opRl),
   (t: 12, entry: opJr),
-  (t: 0, entry: opUnimpl),
+  (t: 8, entry: opAdd16[HL, DE]),
   (t: 8, entry: opLd[A, DE.indirect]),
   (t: 8, entry: opInc16[DE, 0xffff]),
   (t: 4, entry: opInc[4, 1]),
@@ -849,7 +894,7 @@ const opcodes = [
   (t: 8, entry: opLd[Register8.H, Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 8, entry: opJr),
-  (t: 0, entry: opUnimpl),
+  (t: 8, entry: opAdd16[HL, HL]),
   (t: 8, entry: opLd[A, Reg16Inc(HL).indirect]),
   (t: 8, entry: opInc16[HL, 0xffff]),
   (t: 4, entry: opInc[4, 1]),
@@ -865,7 +910,7 @@ const opcodes = [
   (t: 8, entry: opLd[HL.indirect, Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 0, entry: opJr),
-  (t: 0, entry: opUnimpl),
+  (t: 8, entry: opAdd16[HL, SP]),
   (t: 8, entry: opLd[A, Reg16Dec(HL).indirect]),
   (t: 8, entry: opInc16[SP, 0xffff]),
   (t: 4, entry: opInc[4, 1]),
@@ -936,14 +981,14 @@ const opcodes = [
   (t: 8, entry: opLd[HL.indirect, L]),
   (t: 8, entry: opLd[A, HL.indirect]),
   (t: 8, entry: opLd[HL.indirect, A]),
-  (t: 0, entry: opUnimpl),         # 0x80
-  (t: 0, entry: opUnimpl),
-  (t: 0, entry: opUnimpl),
-  (t: 0, entry: opUnimpl),
-  (t: 0, entry: opUnimpl),
-  (t: 0, entry: opUnimpl),
-  (t: 0, entry: opUnimpl),
-  (t: 0, entry: opUnimpl),
+  (t: 4, entry: opAdd[A, B]),         # 0x80
+  (t: 4, entry: opAdd[A, Register8.C]),
+  (t: 4, entry: opAdd[A, D]),
+  (t: 4, entry: opAdd[A, E]),
+  (t: 4, entry: opAdd[A, Register8.H]),
+  (t: 4, entry: opAdd[A, L]),
+  (t: 8, entry: opAdd[A, HL.indirect]),
+  (t: 4, entry: opAdd[A, A]),
   (t: 0, entry: opUnimpl),
   (t: 0, entry: opUnimpl),
   (t: 0, entry: opUnimpl),
@@ -1006,7 +1051,7 @@ const opcodes = [
   (t: 0, entry: opUnimpl),
   (t: 12, entry: opCall[{Z}, true]),
   (t: 16, entry: opPush),
-  (t: 0, entry: opUnimpl),
+  (t: 8, entry: opAdd[A, Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 8, entry: opRet[{Z}, false]),
   (t: 8, entry: opRet[{}, false]),
