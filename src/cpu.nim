@@ -22,10 +22,10 @@ type
     SP,
     PC
   Flag* {.size: sizeof(byte).} = enum
-    Pad0,
+    NC,
     Pad1,
     Pad2,
-    Pad3,
+    NZ,
     C,
     H,
     N,
@@ -239,17 +239,8 @@ proc `$`[T](i: IndirInv[T]): string = &"({i.toT})"
 
 type
   OpcodeEntry = proc(cpu: var Sm83; opcode: uint8): int {.nimcall.}
-  OpcodeDesc = tuple[t: int; entry: OpcodeEntry]
 
 proc opNop(cpu: var Sm83; opcode: uint8): int = discard
-
-func toReg[C, R: static uint](opcode: uint8): uint8 {.inline.} =
-  ## for opcodes like 0x06 B,    0x0e C
-  ##                  0x16 D,    0x1e E
-  ##                  0x26 H,    0x2e L
-  ##                  0x36 (HL), 0x3e A
-  (opcode and 0b111) - C + ((opcode shr 3) and 1) +
-    (((opcode shr 4) - (R.uint8 shr 4)) shl 1)
 
 func toReg16[R: static uint](opcode: uint8): uint8 {.inline.} =
   ## for opcodes like 0x03 BC
@@ -263,60 +254,45 @@ func toReg16[R: static uint](opcode: uint8): uint8 {.inline.} =
   ##                  0xf5 SP
   (opcode shr 4) - uint8(R shr 4)
 
-proc regOrDeref(cpu: Sm83; r: uint8): uint8 {.inline.} =
-  if r == 0x6:
-    load[uint8](cpu.mctrl, cpu.r(HL))
+proc opInc[T: static AddrModes; I: static SomeInteger](cpu: var Sm83; opcode: uint8): int =
+  when I == 1:
+    debug &"INC {T}"
   else:
-    cpu.r(Register8(r))
+    debug &"DEC {T}"
+  let v = T.value(cpu)
+  let r = v + I
+  when T isnot Register16:
+    when I == 1:
+      cpu.f.excl N
+    else:
+      cpu.f.incl N
+    if r == 0:
+      cpu.f.incl Z
+    else:
+      cpu.f.excl Z
+    if ((v and 0xff) + (I and 0xff)) shr 4 != 0:
+      cpu.f.incl H
+    else:
+      cpu.f.excl H
+    
+  T.setValue(cpu, r)
 
-proc addU8[F: static Flags](cpu: var Sm83; v1: uint8; v2: uint8): byte =
-  let h = (v1 and 0b1111) + (v2 and 0xb1111)
-  #let r = uint16(v1 and 0xf0) + (v2 and 0xf0) + h
-  let r = v1 + v2
-
-  # https://github.com/nim-lang/Nim/issues/10220
-  # nim can't infer type of empty `F`, convert it is a workaround
-  when F.Flags != {}:
-    when H in F:
-      if cast[int8](v2) > 0:
-        if h shr 4 != 0:
-          cpu.setF(H)
-        else:
-          cpu.clearF(H)
-      else:
-        if h == 0:
-          cpu.setF(H)
-        else:
-          cpu.clearF(H)
-    when Z in F:
-      if r == 0:
-        cpu.setF(Z)
-      else:
-        cpu.clearF(Z)
-    when C in F:
-      if r shr 8 != 0:
-        cpu.setF(C)
-      else:
-        cpu.clearF(C)
-
-  cast[uint8](r)
-
-proc opInc[C: static uint8; I: static uint8](cpu: var Sm83; opcode: uint8): int =
-  let r = toReg[C, 0](opcode)
-  let v = cpu.regOrDeref(r)
-  const opname = when (I shl 7) == 0: "INC" else: "DEC"
-  if r == 0x6:
-    debug &"{opname} (HL) => (HL:0x{cpu.r(HL):04x})={v}{cast[int8](I):+d}"
-    cpu.mctrl[cpu.r(HL)] = addU8[{Z, H}](cpu, v, I)
-  else:
-    debug &"{opname} {Register8(r)} => {Register8(r)}={v}{cast[int8](I):+d}"
-    cpu.r(Register8(r)) = addU8[{Z, H}](cpu, v, I)
-  cpu.clearF(N)
-
-proc opInc16[R: static Register16; I: static uint16](cpu: var Sm83; opcode: uint8): int =
-  const opname = when (not I) != 0: "INC" else: "DEC"
-  debug &"{opname} {R} => {R}=0x{cpu.r(R):04x}{cast[int16](I):+d}"
-  cpu.r(R) += I
+#proc opInc[C: static uint8; I: static uint8](cpu: var Sm83; opcode: uint8): int =
+#  let r = toReg[C, 0](opcode)
+#  let v = cpu.regOrDeref(r)
+#  const opname = when (I shl 7) == 0: "INC" else: "DEC"
+#  if r == 0x6:
+#    debug &"{opname} (HL) => (HL:0x{cpu.r(HL):04x})={v}{cast[int8](I):+d}"
+#    cpu.mctrl[cpu.r(HL)] = addU8[{Z, H}](cpu, v, I)
+#  else:
+#    debug &"{opname} {Register8(r)} => {Register8(r)}={v}{cast[int8](I):+d}"
+#    cpu.r(Register8(r)) = addU8[{Z, H}](cpu, v, I)
+#  cpu.clearF(N)
+#
+#proc opInc16[R: static Register16; I: static uint16](cpu: var Sm83; opcode: uint8): int =
+#  const opname = when (not I) != 0: "INC" else: "DEC"
+#  debug &"{opname} {R} => {R}=0x{cpu.r(R):04x}{cast[int16](I):+d}"
+#  cpu.r(R) += I
 
 proc opLd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
   debug &"LD {D},{S}"
@@ -359,38 +335,33 @@ proc opPush[S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
   cpu.push S.value(cpu)
 
 proc opRet[F: static Flags; I: static bool](cpu: var Sm83; opcode: uint8): int =
-  var a: Address = cpu.peek
   let c =
     when {}.Flags == F:
-      debug &"RET => PC=(SP:0x{cpu.sp-2:04x}):0x{a:04x}, SP=SP:0x{cpu.sp:04x}+2"
+      debug "RET"
       true
     elif Z in F and I:
+      debug "RET NZ"
       if Z notin cpu.f:
-        debug &"RET NZ => NZ:{Z notin cpu.f}, pop PC=(SP:0x{cpu.sp:04x}):0x{a:04x}, SP=SP:0x{cpu.sp:04x}+2"
         true
       else:
-        debug &"RET NZ => NZ:{Z notin cpu.f}"
         false
     elif Z in F and not I:
+      debug "RET Z"
       if Z notin cpu.f:
-        debug &"RET Z => Z:{Z in cpu.f}, pop PC=(SP:0x{cpu.sp:04x}):0x{a:04x}, SP=SP:0x{cpu.sp:04x}+2"
         true
       else:
-        debug &"RET Z => Z:{Z in cpu.f}"
         false
     elif C in F and I:
+      debug &"RET NC"
       if C notin cpu.f:
-        debug &"RET NC => NC:{C notin cpu.f}, pop PC=(SP:0x{cpu.sp:04x}):0x{a:04x}, SP=SP:0x{cpu.sp:04x}+2"
         true
       else:
-        debug &"RET NC => NC:{C notin cpu.f}"
         false
     elif C in F and not I:
+      debug &"RET C"
       if C in cpu.f:
-        debug &"RET C => C:{C in cpu.f}, pop PC=(SP:0x{cpu.sp:04x}):0x{a:04x}, SP=SP:0x{cpu.sp:04x}+2"
         true
       else:
-        debug &"RET C => C:{C in cpu.f}"
         false
   if c:
     cpu.pc = cpu.pop
@@ -473,10 +444,10 @@ proc opRl[T: static AddrModes; F: static Flags](cpu: var Sm83; opcode: uint8): i
   var v = T.value(cpu)
   let c =
     if (opcode shr 4) == 0:
-      debug &"RLC {D}"
+      debug &"RLC {T}"
       v shr 7
     else:
-      debug &"RL {D}"
+      debug &"RL {T}"
       (C in cpu.f).uint8
   cpu.f = {}
   if v shr 7 != 0:
@@ -491,10 +462,10 @@ proc opRr[T: static AddrModes; F: static Flags](cpu: var Sm83; opcode: uint8): i
   var v = T.value(cpu)
   let c =
     if (opcode shr 4) == 0:
-      debug &"RRC {D}"
+      debug &"RRC {T}"
       (v and 1) shl 7
     else:
-      debug &"RR {D}"
+      debug &"RR {T}"
       (C in cpu.f).uint8 shr 7
   cpu.f = {}
   if (v and 1) != 0:
@@ -871,78 +842,70 @@ proc prefixCb(cpu: var Sm83; opcode: uint8): int =
   debug &"| opcode: 0xcb{opcode:02x}"
   let desc = cbOpcodes[opcode]
   desc.entry(cpu, opcode) + desc.t
-  #of 0xcb:
-  #  let opcode = self.fetch
-  #  case opcode
-  #  of 0x7c:
-  #    debug &"BIT 7,H => H:0x{self.h:02x}, testBit(7):{self.h.testBit(7)}"
-  #    if self.h.testBit(7):
-  #      self.setF(Z)
-  #    else:
-  #      self.clearF(Z)
+
 const opcodes = [
   (t: 4, entry: OpcodeEntry(opNop)),
   (t: 12, entry: opLd[BC, Immediate16Tag]),
   (t: 8, entry: opLd[BC.indir, A]),
-  (t: 8, entry: opInc16[BC, 1]),
-  (t: 4, entry: opInc[4, 1]),
-  (t: 4, entry: opInc[5, 0xff]),
+  (t: 8, entry: opInc[BC, 1]),
+  (t: 4, entry: opInc[B, 1]),
+  (t: 4, entry: opInc[B, 0xff]),
   (t: 8, entry: opLd[B, Immediate8Tag]),
   (t: 4, entry: opRl[A, {}]),
   (t: 0, entry: opLd[Immediate16Tag.indir, SP]),
   (t: 8, entry: opAdd16[HL, BC]),
   (t: 8, entry: opLd[A, BC.indir]),
-  (t: 8, entry: opInc16[BC, 0xffff]),
-  (t: 4, entry: opInc[4, 1]),
-  (t: 4, entry: opInc[5, 0xff]),
+  (t: 8, entry: opInc[BC, 0xffff]),
+  (t: 4, entry: opInc[Register8.C, 1]),
+  (t: 4, entry: opInc[Register8.C, 0xff]),
   (t: 8, entry: opLd[Register8.C, Immediate8Tag]),
   (t: 4, entry: opRr[A, {}]),
   (t: 0, entry: opUnimpl),         # 0x10
   (t: 12, entry: opLd[DE, Immediate16Tag]),
   (t: 8, entry: opLd[DE.indir, A]),
-  (t: 8, entry: opInc16[DE, 1]),
-  (t: 4, entry: opInc[4, 1]),
-  (t: 4, entry: opInc[5, 0xff]),
+  (t: 8, entry: opInc[DE, 1]),
+  (t: 4, entry: opInc[D, 1]),
+  (t: 4, entry: opInc[D, 0xff]),
   (t: 8, entry: opLd[D, Immediate8Tag]),
   (t: 4, entry: opRl[A, {}]),
   (t: 12, entry: opJr),
   (t: 8, entry: opAdd16[HL, DE]),
   (t: 8, entry: opLd[A, DE.indir]),
-  (t: 8, entry: opInc16[DE, 0xffff]),
-  (t: 4, entry: opInc[4, 1]),
-  (t: 4, entry: opInc[5, 0xff]),
+  (t: 8, entry: opInc[DE, 0xffff]),
+  (t: 4, entry: opInc[E, 1]),
+  (t: 4, entry: opInc[E, 0xff]),
   (t: 8, entry: opLd[E, Immediate8Tag]),
   (t: 4, entry: opRr[A, {}]),
   (t: 8, entry: opJr),         # 0x20
   (t: 12, entry: opLd[HL, Immediate16Tag]),
   (t: 8, entry: opLd[Reg16Inc(HL).indir, A]),
-  (t: 8, entry: opInc16[HL, 1]),
-  (t: 4, entry: opInc[4, 1]),
-  (t: 4, entry: opInc[5, 0xff]),
+  (t: 8, entry: opInc[HL, 1]),
+  (t: 4, entry: opInc[Register8.H, 1]),
+  (t: 4, entry: opInc[Register8.H, 0xff]),
   (t: 8, entry: opLd[Register8.H, Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 8, entry: opJr),
   (t: 8, entry: opAdd16[HL, HL]),
   (t: 8, entry: opLd[A, Reg16Inc(HL).indir]),
-  (t: 8, entry: opInc16[HL, 0xffff]),
-  (t: 4, entry: opInc[4, 1]),
-  (t: 4, entry: opInc[5, 0xff]),
+  (t: 8, entry: opInc[HL, 0xffff]),
+  (t: 4, entry: opInc[L, 1]),
+  (t: 4, entry: opInc[L, 0xff]),
   (t: 8, entry: opLd[L, Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 8, entry: opJr),         # 0x30
   (t: 12, entry: opLd[SP, Immediate16Tag]),
   (t: 8, entry: opLd[Reg16Dec(HL).indir, A]),
-  (t: 8, entry: opInc16[SP, 1]),
-  (t: 12, entry: opInc[4, 1]),
-  (t: 12, entry: opInc[5, 0xff]),
+  (t: 8, entry: opInc[SP, 1]),
+  (t: 12, entry: opInc[HL.indir, 1]),
+  (t: 12, entry: opInc[HL.indir, 0xff]),
   (t: 8, entry: opLd[HL.indir, Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 0, entry: opJr),
   (t: 8, entry: opAdd16[HL, SP]),
   (t: 8, entry: opLd[A, Reg16Dec(HL).indir]),
-  (t: 8, entry: opInc16[SP, 0xffff]),
-  (t: 4, entry: opInc[4, 1]),
-  (t: 4, entry: opInc[5, 0xff]),
+  (t: 8, entry: opInc[SP, 0xffff]),
+  (t: 4, entry: opInc[A, 1]),
+  (t: 4, entry: opInc[A, 0xff]),
   (t: 8, entry: opLd[A, Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 4, entry: opLd[B, B]),         # 0x40
@@ -1140,10 +1103,10 @@ const opcodes = [
 ]                      
                        
 proc step*(self: var Sm83) =
-  debug &"| PC:0x{self.pc:04x}, SP:0x{self.sp:04x}"
-  debug &"| B:0x{self.r(B):02x}, C:0x{self.r(C):02x}, D:0x{self.r(D):02x}, E:0x{self.r(E):02x}, "
-  debug &"| H:0x{self.r(H):02x}, L:0x{self.r(L):02x}, A:0x{self.r(A):02x}, F:{self.f}"
-  debug &"| AF:0x{self.r(AF):04x}, BC:{self.r(BC):04x}, DE:0x{self.r(DE):04x}, HL:0x{self.r(HL):04x}"
+  #debug &"| PC:0x{self.pc:04x}, SP:0x{self.sp:04x}"
+  #debug &"| B:0x{self.r(B):02x}, C:0x{self.r(C):02x}, D:0x{self.r(D):02x}, E:0x{self.r(E):02x}, "
+  #debug &"| H:0x{self.r(H):02x}, L:0x{self.r(L):02x}, A:0x{self.r(A):02x}, F:{self.f}"
+  #debug &"| AF:0x{self.r(AF):04x}, BC:{self.r(BC):04x}, DE:0x{self.r(DE):04x}, HL:0x{self.r(HL):04x}"
 
   let opcode = self.fetch
   if opcode != 0xcb:
