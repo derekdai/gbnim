@@ -392,7 +392,7 @@ proc opCall[F: static Flags; I: static bool](cpu: var Sm83; opcode: uint8): int 
         false
     elif Z in F and not I:
       debug &"CALL Z,0x{a:04x}"
-      if Z notin cpu.f:
+      if Z in cpu.f:
         true
       else:
         false
