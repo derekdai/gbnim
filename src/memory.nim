@@ -12,7 +12,7 @@ const
   SRAM* = MemoryRegion(0xa000.Address..0xbfff.Address)
   WRAM0* = MemoryRegion(0xc000.Address..0xcfff.Address)
   WRAMX* = MemoryRegion(0xd000.Address..0xdfff.Address)
-  ECHO* = MemoryRegion(0xd000.Address..0xdfff.Address)
+  ECHO* = MemoryRegion(0xe000.Address..0xfdff.Address)
   OAM* = MemoryRegion(0xfe00.Address..0xfe9f.Address)
   UNUSED* = MemoryRegion(0xfe00.Address..0xfe9f.Address)
   IOREGS* = MemoryRegion(0xff00.Address..0xff7f.Address)
@@ -57,7 +57,7 @@ func toIndex(a: Address): (Address, int) {.inline.} =
     if a in r:
       return (a - r.a, i)
 
-func region(self: MemoryCtrl; a: Address): (Address, Memory) {.inline.} =
+func region*(self: MemoryCtrl; a: Address): (Address, Memory) {.inline.} =
   let (a, i) = a.toIndex
   return (a, self.regions[i])
 

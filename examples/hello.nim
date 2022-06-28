@@ -1,6 +1,6 @@
 import cpu, memory, types
 import libbacktrace
-import std/logging
+import std/[logging, strformat]
 
 addHandler(newConsoleLogger(fmtStr = "[$time] $levelid "))
 setLogFilter(lvlDebug)
@@ -24,11 +24,9 @@ proc newRam*(size: int): Ram =
   Ram(buf: newSeq[byte](size))
 
 method load*(self: Ram; a: Address; dest: pointer; length: uint16) =
-  debug "Ram.load"
   copyMem(dest, addr self.buf[a], length)
 
 method store*(self: var Ram; a: Address; src: pointer; length: uint16) =
-  debug "Ram.store"
   copyMem(addr self.buf[a], src, length)
 
 proc newVideoRam*(): Ram = newRam(8 * 1024)
@@ -65,6 +63,24 @@ proc loadFile(path: string): seq[byte] =
   result = newSeq[byte](fileSize)
   assert f.readBytes(result, 0, fileSize) == fileSize
 
+type
+  EchoRam* = ref object of Memory
+    target: Address
+    mctrl {.cursor.}: MemoryCtrl
+
+proc newEchoRam*(target: Address; mctrl: MemoryCtrl): EchoRam =
+  EchoRam(target: target, mctrl: mctrl)
+
+method load*(self: EchoRam; a: Address; dest: pointer; length: uint16) =
+  let (offset, m) = self.mctrl.region(self.target + a)
+  assert m != nil, &"address 0x{a:04x} is not mapped"
+  m.load(offset, dest, length)
+
+method store*(self: var EchoRam; a: Address; src: pointer; length: uint16) =
+  var (offset, m) = self.mctrl.region(self.target + a)
+  assert m != nil, &"address 0x{a:04x} is not mapped"
+  m.store(offset, src, length)
+
 proc main =
   let bootrom = newRom(loadFile("DMG_ROM.bin"))
   let cartridge = newRom(loadFile("20y.gb"))
@@ -76,6 +92,7 @@ proc main =
   mc.map(OAM, newSpriteAttrTable())
   mc.map(WRAM0, newRam(4 * 1024))
   mc.map(WRAMX, newRam(4 * 1024))
+  mc.map(ECHO, newEchoRam(0xc000, mc))
   mc.map(HRAM, newHighRam())
   mc.map(IOREGS, IoRegisters())
   var c = newSm83(mc)

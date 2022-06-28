@@ -22,19 +22,30 @@ type
     SP,
     PC
   Flag* {.size: sizeof(byte).} = enum
-    NC,
+    Pad0,
     Pad1,
     Pad2,
-    NZ,
+    Pad3,
     C,
     H,
     N,
     Z,
   Flags = set[Flag]
+  InvFlag* {.size: sizeof(byte).} = enum
+    Pad0,
+    Pad1,
+    Pad2,
+    Pad3,
+    NC,
+    Pad4,
+    Pad5,
+    NZ,
+  InvFlags = set[InvFlag]
   Reg8Index = 0..PCH.ord
   Sm83* = ref object
     regs: array[Reg8Index, byte]
     mctrl: MemoryCtrl
+    ticks: int
 
 proc `+=`(self: var Flags; f: Flag) {.inline.} = self.incl f
 proc `+=`(self: var Flags; fs: Flags) {.inline.} = self = self + fs
@@ -371,35 +382,31 @@ proc opCall[F: static Flags; I: static bool](cpu: var Sm83; opcode: uint8): int 
   let a = cpu.fetch or (uint16(cpu.fetch) shl 8)
   let c =
     when {}.Flags == F:
-      debug &"CALL 0x{a:04x} => (SP:0x{cpu.sp:04x}-2)=PC:0x{cpu.pc:04x}, PC=0x{a:04x}"
+      debug &"CALL 0x{a:04x}"
       true
     elif Z in F and I:
+      debug &"CALL NZ,0x{a:04x}"
       if Z notin cpu.f:
-        debug &"CALL 0x{a:04x} => NZ:(Z notin cpu.f), (SP:0x{cpu.sp:04x}-2)=PC:0x{cpu.pc:04x}, PC=0x{a:04x}"
         true
       else:
-        debug &"CALL 0x{a:04x} => NZ:(Z notin cpu.f)"
         false
     elif Z in F and not I:
+      debug &"CALL Z,0x{a:04x}"
       if Z notin cpu.f:
-        debug &"CALL 0x{a:04x} => Z:(Z in cpu.f), (SP:0x{cpu.sp:04x}-2)=PC:0x{cpu.pc:04x}, PC=0x{a:04x}"
         true
       else:
-        debug &"CALL 0x{a:04x} => Z:(Z in cpu.f)"
         false
     elif C in F and I:
+      debug &"CALL NC,0x{a:04x}"
       if C notin cpu.f:
-        debug &"CALL 0x{a:04x} => NC:(C notin cpu.f), (SP:0x{cpu.sp:04x}-2)=PC:0x{cpu.pc:04x}, PC=0x{a:04x}"
         true
       else:
-        debug &"CALL 0x{a:04x} => NC:(C notin cpu.f)"
         false
     elif C in F and not I:
+      debug &"CALL C,0x{a:04x}"
       if C in cpu.f:
-        debug &"CALL 0x{a:04x} => C:(C in cpu.f), (SP:0x{cpu.sp:04x}-2)=PC:0x{cpu.pc:04x}, PC=0x{a:04x}"
         true
       else:
-        debug &"CALL 0x{a:04x} => C:(C in cpu.f)"
         false
   if c:
     cpu.push cpu.pc
@@ -422,7 +429,7 @@ proc opBit[B: static uint8; S: static AddrModes](cpu: var Sm83; opcode: uint8): 
   let v = S.value(cpu)
 
   cpu.f.excl N
-  cpu.f.incl C
+  cpu.f.incl H
   if v.testBit(B):
     cpu.f.excl Z
   else:
@@ -481,14 +488,21 @@ proc opHalt(cpu: var Sm83; opcode: uint8): int =
   while true: discard
 
 proc opAdd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
+  let adc = (opcode and 0x8) != 0
   when S.inverted:
-    debug &"SUB A,{S}"
+    if adc:
+      debug &"SBC A,{S}"
+    else:
+      debug &"SUB A,{S}"
   else:
-    debug &"ADD A,{S}"
+    if adc:
+      debug &"ADC A,{S}"
+    else:
+      debug &"ADD A,{S}"
   let s = S.value(cpu)
   let d = D.value(cpu)
   let c =
-    if (opcode and 0x8) != 0:
+    if adc:
       when S.inverted:
         not cast[uint8](C in cpu.f)
       else:
@@ -537,7 +551,7 @@ proc opAdd16[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: u
     cpu.f.excl N
 
 proc opAnd[S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
-  echo "AND {D},{S}"
+  debug &"AND A,{S}"
   let v1 = A.value(cpu)
   let v2 = D.value(cpu)
   let r = v1 and v2
@@ -546,7 +560,7 @@ proc opAnd[S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
     cpu.f.incl Z
 
 proc opXor[S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
-  echo "XOR {D},{S}"
+  debug &"XOR A,{S}"
   let v1 = A.value(cpu)
   let v2 = D.value(cpu)
   let r = v1 xor v2
@@ -555,7 +569,7 @@ proc opXor[S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
     cpu.f.incl Z
 
 proc opOr[S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
-  echo "OR {D},{S}"
+  debug &"OR A,{S}"
   let v1 = A.value(cpu)
   let v2 = D.value(cpu)
   let r = v1 or v2
@@ -564,11 +578,11 @@ proc opOr[S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
     cpu.f.incl Z
 
 proc opCp[S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
+  debug &"CP A,{S}"
   let v = value(S, cpu)
   let vl = v and 0b1111
   let a = cpu.r(A)
   let al = a and 0b1111
-  debug &"CP A,{S}"
   cpu.f =
     if a == v: {N, Z}
     elif a > v:
@@ -1103,14 +1117,12 @@ const opcodes = [
 ]                      
                        
 proc step*(self: var Sm83) =
-  #debug &"| PC:0x{self.pc:04x}, SP:0x{self.sp:04x}"
-  #debug &"| B:0x{self.r(B):02x}, C:0x{self.r(C):02x}, D:0x{self.r(D):02x}, E:0x{self.r(E):02x}, "
-  #debug &"| H:0x{self.r(H):02x}, L:0x{self.r(L):02x}, A:0x{self.r(A):02x}, F:{self.f}"
-  #debug &"| AF:0x{self.r(AF):04x}, BC:{self.r(BC):04x}, DE:0x{self.r(DE):04x}, HL:0x{self.r(HL):04x}"
+  debug &"| PC:0x{self.pc:04x} SP:0x{self.sp:04x} F:{self.f} A:0x{self.r(A):02x} BC:{self.r(BC):04x} DE:0x{self.r(DE):04x} HL:0x{self.r(HL):04x}"
 
   let opcode = self.fetch
   if opcode != 0xcb:
     debug &"| opcode: 0x{opcode:02x}"
   let desc = opcodes[opcode]
   let t = desc.entry(self, opcode)
-  debug &"~ clocks={desc.t}+{t}"
+  debug &"| ^ clocks={self.ticks}+{desc.t:02d}+{t:02d}"
+  self.ticks += desc.t + t
