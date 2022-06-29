@@ -1,4 +1,4 @@
-import ./types
+import types, utils
 import std/[logging, strformat]
 
 type
@@ -72,11 +72,13 @@ proc load*[T: SomeInteger](self: MemoryCtrl; a: Address): T {.inline.} =
   var (offset, m) = self.region(a)
   assert m != nil, &"address 0x{a:04x} is not mapped: {getBacktrace()}"
   m.load(offset, addr result, sizeof(result).uint16)
+  debug &"| {result.hex:10} < {a.hex}"
 
 proc store*[T: SomeInteger](self: var MemoryCtrl; a: Address; v: T) {.inline.} =
   var (offset, m) = self.region(a)
   assert m != nil, &"address 0x{a:04x} is not mapped: {getBacktrace()}"
   m.store(offset, unsafeAddr v, sizeof(v).uint16)
+  debug &"| {v.hex:10} > {a.hex}"
 
 proc `[]`*(self: MemoryCtrl; a: Address): byte {.inline.} = load[typeof(result)](self, a)
 

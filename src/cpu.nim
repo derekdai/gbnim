@@ -1,4 +1,4 @@
-import memory, types
+import memory, types, utils
 import std/[bitops, logging, strformat]
 
 const
@@ -47,9 +47,6 @@ type
     mctrl: MemoryCtrl
     ticks: int
 
-proc `+=`(self: var Flags; f: Flag) {.inline.} = self.incl f
-proc `+=`(self: var Flags; fs: Flags) {.inline.} = self = self + fs
-proc `-=`(self: var Flags; f: Flag) {.inline.} = self.excl f
 proc `-=`(self: var Flags; fs: Flags) {.inline.} = self = self - fs
 
 proc newSm83*(mc: MemoryCtrl): Sm83 =
@@ -70,8 +67,6 @@ func r*(self: Sm83; i: Register16): uint16 {.inline.} =
   cast[ptr uint16](addr self.regs[i.ord shl 1])[]
 func `r=`*(self: var Sm83; i: Register16; v: uint16) {.inline.} =
   self.r(i) = v
-#func `r16=`*(self: Sm83; i: Register16; v: int16) {.inline.} =
-#  self.regs[i.ord shl 1] = cast[byte](v)
 
 func `+`(v1: uint16; v2: int8): uint16 {.inline.} = cast[uint16](int32(v1) + v2)
 func `+=`(v1: var uint16; v2: int8) {.inline.} = v1 = cast[uint16](int32(v1) + v2)
@@ -92,6 +87,10 @@ func clearF*(self: var Sm83; f: Flag) {.inline.} = self.f.excl(f)
 proc fetch(self: var Sm83): byte {.inline.} =
   result = load[byte](self.mctrl, self.pc)
   self.pc.inc
+
+proc fetch16(self: var Sm83): uint16 {.inline.} =
+  result = load[uint16](self.mctrl, self.pc)
+  self.pc += 2
 
 proc push(self: var Sm83; v: uint16) {.inline.} =
   self.sp -= 2
@@ -197,8 +196,7 @@ proc value(_: Immediate8; cpu: var Sm83): uint8 {.inline.} = cpu.fetch()
 proc value(_: Imme8Inv; cpu: var Sm83): uint8 {.inline.} = not cpu.fetch()
 func inv(i: Immediate8): Imme8Inv = Imme8Inv(i)
 
-proc value(_: Immediate16; cpu: var Sm83): uint16 {.inline.} =
-  cpu.fetch() or (uint16(cpu.fetch()) shl 8)
+proc value(_: Immediate16; cpu: var Sm83): uint16 {.inline.} = cpu.fetch16()
 
 proc value(i: Indir[Register16]; cpu: Sm83): uint8 {.inline.} =
   cpu.mctrl[cpu.r(Register16(i.ord))]
@@ -227,19 +225,19 @@ proc setValue(i: Indir[Reg16Dec]; cpu: var Sm83; v: uint8) {.inline.} =
   cpu.r(r).dec
 
 proc value(_: Indir[Immediate16]; cpu: var Sm83): uint8 {.inline.} =
-  cpu.mctrl[cpu.fetch() or (uint16(cpu.fetch()) shl 8)]
+  cpu.mctrl[cpu.fetch16()]
 proc setValue(_: Indir[Immediate16]; cpu: var Sm83; v: uint8) {.inline.} =
-  cpu.mctrl[cpu.fetch() or (uint16(cpu.fetch()) shl 8)] = v
+  cpu.mctrl[cpu.fetch16()] = v
 proc setValue(_: Indir[Immediate16]; cpu: var Sm83; v: uint16) {.inline.} =
-  cpu.mctrl[cpu.fetch() or (uint16(cpu.fetch()) shl 8)] = v
+  cpu.mctrl[cpu.fetch16()] = v
 
 proc value(i: Indir[(Address, Immediate8)]; cpu: var Sm83): uint8 {.inline.} =
   cpu.mctrl[i.toT[0] + cpu.fetch()]
 proc setValue(i: Indir[(Address, Immediate8)]; cpu: var Sm83; v: uint8) {.inline.} =
   cpu.mctrl[i.toT[0] + cpu.fetch()] = v
 
-proc `$`(pair: (Address, Immediate8)): string = &"0x{pair[0]:04x}+u8"
-proc `$`(pair: (Address, Register8)): string = &"0x{pair[0]:04x}+{pair[1]}"
+proc `$`(pair: (Address, Immediate8)): string = &"{pair[0].hex}+u8"
+proc `$`(pair: (Address, Register8)): string = &"{pair[0].hex}+{pair[1]}"
 proc `$`(_: Immediate8): string = "u8"
 proc `$`(_: Imme8Inv): string = "u8"
 proc `$`(_: Immediate16): string = "u16"
@@ -289,23 +287,6 @@ proc opInc[T: static AddrModes; I: static SomeInteger](cpu: var Sm83; opcode: ui
       cpu.f.excl H
     
   T.setValue(cpu, r)
-
-#proc opInc[C: static uint8; I: static uint8](cpu: var Sm83; opcode: uint8): int =
-#  let r = toReg[C, 0](opcode)
-#  let v = cpu.regOrDeref(r)
-#  const opname = when (I shl 7) == 0: "INC" else: "DEC"
-#  if r == 0x6:
-#    debug &"{opname} (HL) => (HL:0x{cpu.r(HL):04x})={v}{cast[int8](I):+d}"
-#    cpu.mctrl[cpu.r(HL)] = addU8[{Z, H}](cpu, v, I)
-#  else:
-#    debug &"{opname} {Register8(r)} => {Register8(r)}={v}{cast[int8](I):+d}"
-#    cpu.r(Register8(r)) = addU8[{Z, H}](cpu, v, I)
-#  cpu.clearF(N)
-#
-#proc opInc16[R: static Register16; I: static uint16](cpu: var Sm83; opcode: uint8): int =
-#  const opname = when (not I) != 0: "INC" else: "DEC"
-#  debug &"{opname} {R} => {R}=0x{cpu.r(R):04x}{cast[int16](I):+d}"
-#  cpu.r(R) += I
 
 proc opLd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
   debug &"LD {D},{S}"
@@ -381,31 +362,31 @@ proc opRet[F: static Flags; I: static bool](cpu: var Sm83; opcode: uint8): int =
     result = 12
 
 proc opCall[F: static Flags; I: static bool](cpu: var Sm83; opcode: uint8): int =
-  let a = cpu.fetch or (uint16(cpu.fetch) shl 8)
+  let a = cpu.fetch16()
   let c =
     when {}.Flags == F:
-      debug &"CALL 0x{a:04x}"
+      debug &"CALL {a.hex}"
       true
     elif Z in F and I:
-      debug &"CALL NZ,0x{a:04x}"
+      debug &"CALL NZ,{a.hex}"
       if Z notin cpu.f:
         true
       else:
         false
     elif Z in F and not I:
-      debug &"CALL Z,0x{a:04x}"
+      debug &"CALL Z,{a.hex}"
       if Z in cpu.f:
         true
       else:
         false
     elif C in F and I:
-      debug &"CALL NC,0x{a:04x}"
+      debug &"CALL NC,{a.hex}"
       if C notin cpu.f:
         true
       else:
         false
     elif C in F and not I:
-      debug &"CALL C,0x{a:04x}"
+      debug &"CALL C,{a.hex}"
       if C in cpu.f:
         true
       else:
@@ -416,11 +397,11 @@ proc opCall[F: static Flags; I: static bool](cpu: var Sm83; opcode: uint8): int 
     result = 12
 
 proc opUnimpl(cpu: var Sm83; opcode: uint8): int =
-  fatal &"opcode 0x{opcode:02x} not implemented yet"
+  fatal &"opcode {opcode.hex} not implemented yet"
   quit(1)
 
 proc opIllegal(cpu: var Sm83; opcode: uint8): int =
-  fatal &"illegal opcode 0x{opcode:02x}"
+  fatal &"illegal opcode {opcode.hex}"
 
 proc opCbUnimpl(cpu: var Sm83; opcode: uint8): int =
   fatal &"opcode 0xcb{opcode:02x} is not implemented yet"
@@ -1119,12 +1100,10 @@ const opcodes = [
 ]                      
                        
 proc step*(self: var Sm83) =
-  debug &"| PC:0x{self.pc:04x} SP:0x{self.sp:04x} F:{self.f} A:0x{self.r(A):02x} BC:{self.r(BC):04x} DE:0x{self.r(DE):04x} HL:0x{self.r(HL):04x}"
+  debug &"| PC:{self.pc.hex} SP:{self.sp.hex} A:{self.r(A).hex} F:{self.f} BC:{self.r(BC).hex} DE:{self.r(DE).hex} HL:{self.r(HL).hex}"
 
   let opcode = self.fetch
-  if opcode != 0xcb:
-    debug &"| opcode: 0x{opcode:02x}"
   let desc = opcodes[opcode]
   let t = desc.entry(self, opcode)
-  debug &"| ^ clocks={self.ticks}+{desc.t:02d}+{t:02d}"
+  debug &"- clocks({self.ticks})+={desc.t:02d}+{t:02d}"
   self.ticks += desc.t + t
