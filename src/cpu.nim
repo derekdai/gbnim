@@ -303,7 +303,8 @@ proc opLd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint
 proc opJr(cpu: var Sm83; opcode: uint8): int =
   let v = cast[int8](cpu.fetch)
   case opcode shr 4:
-  of 0x1: discard
+  of 0x1:
+    debug &"JR {v}"
   of 0x2:
     if opcode.testBit(3):
       debug &"JR Z,{v}"
