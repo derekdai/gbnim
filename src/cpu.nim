@@ -49,8 +49,12 @@ type
 
 proc `-=`(self: var Flags; fs: Flags) {.inline.} = self = self - fs
 
-proc newSm83*(mc: MemoryCtrl): Sm83 =
-  Sm83(mctrl: mc)
+proc newSm83*(): Sm83 = Sm83()
+
+proc ticks*(self: Sm83): int = self.ticks
+
+proc memCtrl*(self: Sm83): MemoryCtrl = self.mctrl
+proc `memCtrl=`*(self: Sm83, mctrl: MemoryCtrl) = self.mctrl = mctrl
 
 converter toReg8Index(r: Register8): Reg8Index =
   const lut = [1, 0, 3, 2, 5, 4, 6, 7, 8, 9, 10, 11]
@@ -162,7 +166,7 @@ func inverted[T](_: T): bool =
     false
 
 proc value(r: Register8; cpu: Sm83): uint8 {.inline.} = cpu.r(r)
-proc value(r: Reg8Inv; cpu: Sm83): uint8 {.inline.} = not cpu.r(Register8(r.ord))
+proc value(r: Reg8Inv; cpu: Sm83): uint8 {.inline.} = 1 + not cpu.r(Register8(r.ord))
 proc setValue(r: Register8; cpu: var Sm83; v: uint8) {.inline.} = cpu.r(r) = v
 func inv(r: Register8): Reg8Inv = Reg8Inv(r.ord)
 
@@ -172,7 +176,7 @@ proc setValue(i: Indir[(Address, Register8)]; cpu: var Sm83; v: uint8) {.inline.
   cpu.mctrl[i.toT[0] + cpu.r(i.toT[1])] = v
 
 proc value(r: Register16; cpu: Sm83): uint16 {.inline.} = cpu.r(r)
-proc value(r: Reg16Inv; cpu: Sm83): uint16 {.inline.} = not cpu.r(Register16(r.ord))
+proc value(r: Reg16Inv; cpu: Sm83): uint16 {.inline.} = 1 + not cpu.r(Register16(r.ord))
 proc setValue(r: Register16; cpu: var Sm83; v: uint16) {.inline.} = cpu.r(r) = v
 func inv(r: Register16): Reg16Inv = Reg16Inv(r.ord)
 
@@ -193,7 +197,7 @@ proc value(pair: Reg16Imme8; cpu: var Sm83): uint16 {.inline.} =
   return uint16(r and 0xffff)
 
 proc value(_: Immediate8; cpu: var Sm83): uint8 {.inline.} = cpu.fetch()
-proc value(_: Imme8Inv; cpu: var Sm83): uint8 {.inline.} = not cpu.fetch()
+proc value(_: Imme8Inv; cpu: var Sm83): uint8 {.inline.} = 1 + not cpu.fetch()
 func inv(i: Immediate8): Imme8Inv = Imme8Inv(i)
 
 proc value(_: Immediate16; cpu: var Sm83): uint16 {.inline.} = cpu.fetch16()
@@ -201,7 +205,7 @@ proc value(_: Immediate16; cpu: var Sm83): uint16 {.inline.} = cpu.fetch16()
 proc value(i: Indir[Register16]; cpu: Sm83): uint8 {.inline.} =
   cpu.mctrl[cpu.r(Register16(i.ord))]
 proc value(i: IndirInv[Register16]; cpu: Sm83): uint8 {.inline.} =
-  not cpu.mctrl[cpu.r(Register16(i.ord))]
+  1 + not cpu.mctrl[cpu.r(Register16(i.ord))]
 proc setValue(i: Indir[Register16]; cpu: var Sm83; v: uint8) {.inline.} =
   cpu.mctrl[cpu.r(Register16(i.ord))] = v
 func inv(i: Indir[Register16]): IndirInv[Register16] {.inline.} =
@@ -471,17 +475,7 @@ proc opHalt(cpu: var Sm83; opcode: uint8): int =
   while true: discard
 
 proc opAdd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
-  let adc = (opcode and 0x8) != 0
-  when S.inverted:
-    if adc:
-      debug &"SBC A,{S}"
-    else:
-      debug &"SUB A,{S}"
-  else:
-    if adc:
-      debug &"ADC A,{S}"
-    else:
-      debug &"ADD A,{S}"
+  let adc = (opcode and 0xf) > 7
   let s = S.value(cpu)
   let d = D.value(cpu)
   let c =
@@ -493,6 +487,16 @@ proc opAdd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uin
     else:
       0
   let r = d.uint16 + s + c
+  when S.inverted:
+    if adc:
+      debug &"SBC A,{S}"
+    else:
+      debug &"SUB A,{S}"
+  else:
+    if adc:
+      debug &"ADC A,{S}"
+    else:
+      debug &"ADD A,{S}"
   D.setValue(cpu, uint8(r and 0xff))
   if (r and 0xff) == 0:
     cpu.f.incl Z
