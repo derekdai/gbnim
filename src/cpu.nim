@@ -31,21 +31,20 @@ type
     N,
     Z,
   Flags = set[Flag]
-  InvFlag* {.size: sizeof(byte).} = enum
-    Pad0,
-    Pad1,
-    Pad2,
-    Pad3,
-    NC,
-    Pad4,
-    Pad5,
-    NZ,
+  InvFlag* {.size: sizeof(byte).} = distinct Flag
   InvFlags = set[InvFlag]
+  FlagSet =
+    Flags |
+    InvFlags
   Reg8Index = 0..PCH.ord
   Sm83* = ref object
     regs: array[Reg8Index, byte]
     mctrl: MemoryCtrl
     ticks: int
+
+const
+  NZ = InvFlag(Z.ord)
+  NC = InvFlag(Flag.C.ord)
 
 proc `-=`(self: var Flags; fs: Flags) {.inline.} = self = self - fs
 
@@ -53,8 +52,9 @@ proc newSm83*(): Sm83 = Sm83()
 
 proc ticks*(self: Sm83): int = self.ticks
 
-proc memCtrl*(self: Sm83): MemoryCtrl = self.mctrl
-proc `memCtrl=`*(self: Sm83, mctrl: MemoryCtrl) = self.mctrl = mctrl
+proc memCtrl*(self: Sm83): MemoryCtrl {.inline.} = self.mctrl
+proc memCtrl*(self: var Sm83): var MemoryCtrl {.inline.} = self.mctrl
+proc `memCtrl=`*(self: Sm83, mctrl: MemoryCtrl) {.inline.} = self.mctrl = mctrl
 
 converter toReg8Index(r: Register8): Reg8Index =
   const lut = [1, 0, 3, 2, 5, 4, 6, 7, 8, 9, 10, 11]
@@ -160,7 +160,7 @@ func indir[T](v: T): Indir[T] {.inline.} =
     Indir[T](v)
 
 func inverted[T](_: T): bool =
-  when T is AddrModesInv:
+  when T is AddrModesInv or T is InvFlag:
     true
   else:
     false
@@ -322,6 +322,24 @@ proc opJr(cpu: var Sm83; opcode: uint8): int =
       if C in cpu.f: return
     result = 4
   cpu.pc += v
+
+proc check(fs: static FlagSet; cpu: Sm83): bool {.inline.} =
+  when fs is Flags:
+    when Z in fs.Flags: Z in cpu.f
+    elif N in fs.Flags: N in cpu.f
+    elif H in fs.Flags: H in cpu.f
+    elif C in fs.Flags: C in cpu.f
+    else: true
+  else:
+    when NZ in fs: Z notin cpu.f
+    elif NC in fs: C notin cpu.f
+    else: true
+
+proc opJp[S: static AddrModes; F: static FlagSet](cpu: var Sm83; opcode: uint8): int =
+  let v = S.value(cpu)
+  if F.check(cpu):
+    cpu.pc = v
+    result = 4
 
 proc opPop(cpu: var Sm83; opcode: uint8): int =
   let r = Register16(toReg16[0xc0](opcode))
@@ -1040,15 +1058,15 @@ const opcodes = [
   (t: 4, entry: opCp[A]),
   (t: 8, entry: opRet[{Z}, true]),         # 0xc0
   (t: 12, entry: opPop),
-  (t: 0, entry: opUnimpl),
-  (t: 0, entry: opUnimpl),
+  (t: 12, entry: opJp[Immediate16Tag, {NZ}]),
+  (t: 12, entry: opJp[Immediate16Tag, {}]),
   (t: 12, entry: opCall[{Z}, true]),
   (t: 16, entry: opPush[BC]),
   (t: 8, entry: opAdd[A, Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 8, entry: opRet[{Z}, false]),
   (t: 8, entry: opRet[{}, false]),
-  (t: 0, entry: opUnimpl),
+  (t: 12, entry: opJp[Immediate16Tag, {Z}]),
   (t: 4, entry: prefixCb),
   (t: 12, entry: opCall[{Z}, false]),
   (t: 12, entry: opCall[{}, false]),
@@ -1056,7 +1074,7 @@ const opcodes = [
   (t: 0, entry: opUnimpl),
   (t: 8, entry: opRet[{Flag.C}, true]),         # 0xd0
   (t: 12, entry: opPop),
-  (t: 0, entry: opUnimpl),
+  (t: 12, entry: opJp[Immediate16Tag, {NC}]),
   (t: 0, entry: opIllegal),
   (t: 12, entry: opCall[{Flag.C}, true]),
   (t: 16, entry: opPush[DE]),
@@ -1064,7 +1082,7 @@ const opcodes = [
   (t: 0, entry: opUnimpl),
   (t: 8, entry: opRet[{Flag.C}, false]),
   (t: 8, entry: opRet[{}, false]),
-  (t: 0, entry: opUnimpl),
+  (t: 12, entry: opJp[Immediate16Tag, {Flag.C}]),
   (t: 0, entry: opIllegal),
   (t: 12, entry: opCall[{Flag.C}, false]),
   (t: 0, entry: opIllegal),
@@ -1079,7 +1097,7 @@ const opcodes = [
   (t: 8, entry: opAnd[Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 0, entry: opUnimpl),
-  (t: 0, entry: opUnimpl),
+  (t: 0, entry: opJp[HL, {}]), # t: 0 is not typo
   (t: 16, entry: opLd[Immediate16Tag.indir, A]),
   (t: 0, entry: opIllegal),
   (t: 0, entry: opIllegal),

@@ -132,6 +132,12 @@ method store*(self: var IoRegisters; a: Address; src: pointer; length: uint16) =
     debug &"BgScrollX: {v}"
   of 0x47:
     debug &"BgPalette: {v.to(BgPaletteData)}"
+  of 0x50:
+    debug &"BootRomOn: {v == 0}"
+    if v == 0:
+      self.cpu.memCtrl.enableBootRom()
+    else:
+      self.cpu.memCtrl.disableBootRom()
   else:
     debug &"undefined I/O: 0xff{a:02x}"
   copyMem(addr self.r[a], src, length)
@@ -164,14 +170,14 @@ proc newEchoRam*(target: Address; mctrl: MemoryCtrl): EchoRam =
   EchoRam(target: target, mctrl: mctrl)
 
 method load*(self: EchoRam; a: Address; dest: pointer; length: uint16) =
-  let (offset, m) = self.mctrl.region(self.target + a)
-  assert m != nil, &"address 0x{a:04x} is not mapped"
-  m.load(offset, dest, length)
+  let mem = self.mctrl.region(self.target + a)
+  assert mem != nil, &"address 0x{a:04x} is not mapped"
+  mem.load(a, dest, length)
 
 method store*(self: var EchoRam; a: Address; src: pointer; length: uint16) =
-  var (offset, m) = self.mctrl.region(self.target + a)
-  assert m != nil, &"address 0x{a:04x} is not mapped"
-  m.store(offset, src, length)
+  var mem = self.mctrl.region(self.target + a)
+  assert mem != nil, &"address 0x{a:04x} is not mapped"
+  mem.store(a, src, length)
 
 type
   Peripheral = ref object of RootObj
@@ -201,7 +207,7 @@ proc main =
   mc.map(IOREGS, newIoRegisters(c))
   c.memCtrl = mc 
 
-  while running and c.ticks < 300000:
+  while running and c.ticks < 400000:
     c.step()
 
   info "bye"
