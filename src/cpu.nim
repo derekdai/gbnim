@@ -25,7 +25,7 @@ type
     Pad0,
     Pad1,
     Pad2,
-    Pad3,
+    IME,
     C,
     H,
     N,
@@ -598,6 +598,14 @@ proc opCp[S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
       if al >= vl: {N, C}
       else: {N, H, C}
 
+proc opIme(cpu: var Sm83; opcode: uint8): int =
+  if opcode == 0xf3:
+    debug "DI"
+    cpu.f.excl IME
+  else:
+    debug "EI"
+    cpu.f.incl IME
+
 const cbOpcodes = [    
   (t: 8, entry: opRl[B, {Z}]),
   (t: 8, entry: opRl[Register8.C, {Z}]),
@@ -1107,7 +1115,7 @@ const opcodes = [
   (t: 0, entry: opLd[A, (Address(0xff00), Immediate8Tag).indir]),         # 0xf0
   (t: 12, entry: opPop),
   (t: 0, entry: opLd[A, (Address(0xff00), Register8.C).indir]),
-  (t: 0, entry: opUnimpl),
+  (t: 4, entry: opIme),
   (t: 0, entry: opIllegal),
   (t: 16, entry: opPush[AF]),
   (t: 8, entry: opOr[Immediate8Tag]),
@@ -1115,7 +1123,7 @@ const opcodes = [
   (t: 0, entry: opLd[HL, (SP, Immediate8Tag)]),
   (t: 0, entry: opLd[SP, HL]),
   (t: 16, entry: opLd[A, Immediate16Tag.indir]),
-  (t: 0, entry: opUnimpl),
+  (t: 4, entry: opIme),
   (t: 0, entry: opIllegal),
   (t: 0, entry: opIllegal),
   (t: 8, entry: opCp[Immediate8Tag]),
