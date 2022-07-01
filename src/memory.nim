@@ -36,13 +36,19 @@ method store*(self: var Memory; a: Address; src: pointer;
 
 type
   Rom* = ref object of Memory
-    buf: seq[byte]
+    data: seq[byte]
 
-proc newRom*(buf: sink seq[byte]): Rom =
-  Rom(buf: buf)
+func initRom*(self: Rom; data: sink seq[byte]) =
+  self.data = data
+
+proc newRom*(data: sink seq[byte]): Rom =
+  result = Rom()
+  initRom(result, data)
+
+func data*(self: Rom): lent seq[byte] = self.data
 
 method load*(self: Rom; a: Address; dest: pointer; length: uint16) =
-  copyMem(dest, addr self.buf[a - self.region.a], length)
+  copyMem(dest, addr self.data[a - self.region.a], length)
 
 method store*(self: var Rom; a: Address; src: pointer; length: uint16) =
   debug &"no ROM region specific implemention: {self.region}"

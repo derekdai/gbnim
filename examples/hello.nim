@@ -1,6 +1,6 @@
-import cpu, memory, types
+import cpu, memory, types, cartridge
 import libbacktrace
-import std/[logging, strformat]
+import std/[logging, strformat, strutils]
 
 addHandler(newConsoleLogger(fmtStr = "[$time] $levelid "))
 setLogFilter(lvlDebug)
@@ -142,17 +142,6 @@ method store*(self: var IoRegisters; a: Address; src: pointer; length: uint16) =
     debug &"undefined I/O: 0xff{a:02x}"
   copyMem(addr self.r[a], src, length)
 
-type
-  Cartridges* = ref object of Memory
-
-proc newCartridges*(): Cartridges = Cartridges()
-
-method load*(self: Cartridges; a: Address; dest: pointer;
-    length: uint16) = debug "Cartridges.load"
-
-method store*(self: var Cartridges; a: Address; src: pointer;
-    length: uint16) = debug "Cartridges.store"
-
 proc loadFile(path: string): seq[byte] =
   let f = open(path)
   defer: f.close()
@@ -160,6 +149,36 @@ proc loadFile(path: string): seq[byte] =
   let fileSize = f.getFileSize()
   result = newSeq[byte](fileSize)
   assert f.readBytes(result, 0, fileSize) == fileSize
+
+type
+  Cartridge* = ref object of Rom
+
+func header(self: Cartridge): ptr Header = 
+  cast[ptr Header](unsafeAddr self.data[0x100])
+
+func validateChecksum(self: Cartridge): bool =
+  var sum = 0u16
+  for i in 0..<0x14e:
+    sum = (sum + self.data[i]) and 0xffff
+
+  for i in 0x150..<self.data.len:
+    sum = (sum + self.data[i]) and 0xffff
+
+  sum == self.header.globalChecksum
+
+proc newCartridge*(path: string): Cartridge =
+  result = Cartridge()
+  initRom(result, loadFile(path))
+  echo &"ROM file path: {path}, size: {result.data.len} bytes"
+  echo &"Header: {result.header[]}"
+  echo &"Logo is valid: {result.header[].validateLogo}"
+  echo &"Header is valid: {result.header[].validateChecksum}"
+
+method load*(self: Cartridge; a: Address; dest: pointer; length: uint16) =
+  debug "Cartridges.load"
+
+method store*(self: var Cartridge; a: Address; src: pointer; length: uint16) =
+  debug "Cartridges.store"
 
 type
   EchoRam* = ref object of Memory
@@ -192,7 +211,7 @@ proc main =
   )
 
   let bootrom = newRom(loadFile("DMG_ROM.bin"))
-  let cartridge = newRom(loadFile("20y.gb"))
+  let cartridge = newCartridge("pokemon.gb")
   var c = newSm83()
   let mc = newMemoryCtrl()
   mc.map(BOOTROM, bootrom)
