@@ -57,10 +57,10 @@ proc newInterruptEnableReg(cpu: Sm83): InterruptEnableReg =
   Memory.init(result, IE)
   result.cpu = cpu
 
-method load*(self: InterruptEnableReg; a: Address; dest: pointer; length: uint16) =
+method load*(self: InterruptEnableReg; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
   cast[ptr byte](dest)[] = cast[byte](self.cpu.intrEnable)
 
-method store*(self: var InterruptEnableReg; a: Address; src: pointer; length: uint16) =
+method store*(self: var InterruptEnableReg; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
   cast[ptr byte](addr self.cpu.intrEnable)[] = cast[ptr byte](src)[]
   debug &"IE: {self.cpu.intrEnable}"
 

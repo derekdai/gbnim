@@ -1,4 +1,4 @@
-import cpu, memory, utils, types
+import memory, utils, types
 import std/[logging, strformat]
 
 const
@@ -388,11 +388,11 @@ proc newRomBank(region: MemoryRegion; data: Bytes): RomBank =
 func switch*(self: RomBank; data: Bytes) =
   self.data = data
 
-method load*(self: RomBank; a: Address; dest: pointer; length: uint16) =
+method load*(self: RomBank; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
   debug "RomBank.load"
   copyMem(dest, unsafeAddr self.data[a - self.region.a], length)
 
-method store*(self: var RomBank; a: Address; src: pointer; length: uint16) =
+method store*(self: var RomBank; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
   debug "RomBank.store"
   debug &"no ROM region specific implemention: {self.region}"
 

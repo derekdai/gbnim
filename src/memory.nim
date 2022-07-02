@@ -30,10 +30,10 @@ func `region`*(self: Memory): lent MemoryRegion = self.region
 func `region=`*(self: var Memory; region: MemoryRegion) = self.region = region
 
 method load*(self: Memory; a: Address; dest: pointer;
-    length: uint16) {.base.} = assert false, &"Memory.load(0x{a:04x}) not implemented"
+    length: uint16) {.base, locks: "unknown".} = assert false, &"Memory.load(0x{a:04x}) not implemented"
 
 method store*(self: var Memory; a: Address; src: pointer;
-    length: uint16) {.base.} = assert false, &"Memory.store(0x{a:04x}) not implemented"
+    length: uint16) {.base, locks: "unknown".} = assert false, &"Memory.store(0x{a:04x}) not implemented"
 
 type
   Rom* = ref object of Memory
@@ -49,10 +49,10 @@ proc newRom*(region: MemoryRegion; data: sink seq[byte]): Rom =
 
 func data*(self: Rom): lent seq[byte] = self.data
 
-method load*(self: Rom; a: Address; dest: pointer; length: uint16) =
+method load*(self: Rom; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
   copyMem(dest, addr self.data[a - self.region.a], length)
 
-method store*(self: var Rom; a: Address; src: pointer; length: uint16) =
+method store*(self: var Rom; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
   debug &"no ROM region specific implemention: {self.region}"
 
 type
