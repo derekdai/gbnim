@@ -181,35 +181,53 @@ method store*(self: var EchoRam; a: Address; src: pointer; length: uint16) =
   mem.store(offset, src, length)
 
 type
+  Dmg* = ref object
+    running: bool
+    cart: Cartridge
+    cpu: Sm83
+
+proc newDmg*(bootRomPath: string): Dmg =
+  result = Dmg(cpu: newSm83())
+  let memCtrl = newMemoryCtrl()
+  memCtrl.map(newRom(BOOTROM, loadFile(bootRomPath)))
+  memCtrl.map(newVideoRam())
+  memCtrl.map(newSpriteAttrTable())
+  memCtrl.map(newRam(WRAM0))
+  memCtrl.map(newRam(WRAMX))
+  memCtrl.map(newEchoRam(0xc000, memCtrl))
+  memCtrl.map(newHighRam())
+  memCtrl.map(newIoRegisters(result.cpu))
+  result.cpu.memCtrl = memCtrl
+
+proc loadCart*(self: Dmg; path: string) =
+  self.cart = newCartridge(path)
+  self.cart.mount(self.cpu.memCtrl)
+
+func running*(self: Dmg): bool = self.running
+
+func stop*(self: Dmg) = self.running = false
+
+proc run*(self: Dmg) =
+  self.running = true
+  while self.running:
+    self.cpu.step()
+
+type
   Peripheral = ref object of RootObj
   Apu = ref object of Peripheral
   Ppu = ref object of Peripheral
 
-var running = true
+var dmg: Dmg
 
 proc main =
+  dmg = newDmg("DMG_ROM.bin")
+
   setControlCHook(proc() {.noconv.} =
-    running = false
+    dmg.stop()
   )
 
-  var c = newSm83()
-  let mc = newMemoryCtrl()
-  mc.map(newRom(BOOTROM, loadFile("DMG_ROM.bin")))
-  mc.map(newVideoRam())
-  mc.map(newSpriteAttrTable())
-  mc.map(newRam(WRAM0))
-  mc.map(newRam(WRAMX))
-  mc.map(newEchoRam(0xc000, mc))
-  mc.map(newHighRam())
-  mc.map(newIoRegisters(c))
-
-  let cartridge = newCartridge("tetris.gb")
-  cartridge.mount(mc)
-
-  c.memCtrl = mc 
-
-  while running and c.ticks < 550000:
-    c.step()
+  dmg.loadCart("tetris.gb")
+  dmg.run()
 
   info "bye"
 
