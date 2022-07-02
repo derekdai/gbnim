@@ -1,4 +1,4 @@
-import cpu, memory, types, cartridge
+import cpu, memory, types, cartridge, utils
 import libbacktrace
 import std/[logging, strformat, strutils]
 
@@ -8,39 +8,34 @@ setLogFilter(lvlDebug)
 type
   SpriteAttrTable* = ref object of Memory
 
-proc newSpriteAttrTable*(): SpriteAttrTable = SpriteAttrTable()
+proc newSpriteAttrTable*(): SpriteAttrTable =
+  result = SpriteAttrTable()
+  Memory.init(result, OAM)
 
 method load*(self: SpriteAttrTable; a: Address; dest: pointer; length: uint16) =
-  discard
+  debug "OAM.load"
 
 method store*(self: var SpriteAttrTable; a: Address; src: pointer; length: uint16) =
-  discard
+  debug "OAM.store"
 
 type
   Ram* = ref object of Memory
     buf: seq[byte]
 
-proc newRam*(size: int): Ram =
-  Ram(buf: newSeq[byte](size))
+proc newRam*(region: MemoryRegion): Ram =
+  result = Ram()
+  Memory.init(result, region)
+  result.buf = newSeq[byte](region.b - region.a + 1)
 
 method load*(self: Ram; a: Address; dest: pointer; length: uint16) =
-  copyMem(dest, addr self.buf[a], length)
+  copyMem(dest, addr self.buf[a - self.region.a], length)
 
 method store*(self: var Ram; a: Address; src: pointer; length: uint16) =
-  copyMem(addr self.buf[a], src, length)
+  copyMem(addr self.buf[a - self.region.a], src, length)
 
-proc newVideoRam*(): Ram = newRam(8 * 1024)
+proc newVideoRam*(): Ram = newRam(VRAM)
 
-proc newHighRam*(): Ram = newRam(0xfffe - 0xff80 + 1)
-
-type
-  IoRegisters* = ref object of Memory
-    cpu {.cursor.}: Sm83
-    r: array[0..0x7f, byte]
-
-proc newIoRegisters*(cpu: Sm83): IoRegisters =
-  result = IoRegisters(cpu: cpu)
-  result.r[0x44] = 144
+proc newHighRam*(): Ram = newRam(HRAM)
 
 type
   SoundOnFlag {.size: 1.} = enum
@@ -96,26 +91,46 @@ type
     winTileMapDisplaySel {.bitsize: 1.}: byte
     lcdDisplay {.bitsize: 1.}: bool
 
+type
+  IoRegisters* = ref object of Memory
+    cpu {.cursor.}: Sm83
+    r: array[0..0x7f, byte]
+
+proc newIoRegisters*(cpu: Sm83): IoRegisters =
+  result = IoRegisters()
+  Memory.init(result, IOREGS)
+  result.cpu = cpu
+
+  # trick to allow boot ROM run to its end
+  result.r[0x44] = 144
+
 proc to(v: uint8; T: typedesc): T = cast[ptr T](unsafeAddr v)[]
 proc to(v: var uint8; T: typedesc): ptr T = cast[ptr T](v)
 
 method load*(self: IoRegisters; a: Address; dest: pointer; length: uint16) =
   debug "IoRegisters.load"
   assert length == 1
+  let a = a - self.region.a
+  let v = self.r[a]
   case a
+  of 0x0f:
+    debug &"IntrFlag: {cast[InterruptFlags](v)}"
   of 0x44:
-    debug &"LCDCYCoor: {self.r[a]}"
+    debug &"LCDCYCoor: {v}"
   of 0x42:
-    debug &"BgScrollY: {self.r[a]}"
+    debug &"BgScrollY: {v}"
   else:
-    debug &"undefined I/O: 0xff{a:02x}"
-  cast[ptr byte](dest)[] = self.r[a]
+    debug &"I/O load not impl: 0xff{a:02x}"
+  cast[ptr byte](dest)[] = v
 
 method store*(self: var IoRegisters; a: Address; src: pointer; length: uint16) =
   debug "IoRegisters.store"
   assert length == 1
   let v = cast[ptr uint8](src)[]
+  let a = a - self.region.a
   case a
+  of 0x0f:
+    debug &"IntrFlag: {cast[InterruptFlags](v)}"
   of 0x11:
     debug &"SndLenWavPtn: {v.to(SoundLengthWaveDuty)}"
   of 0x12:
@@ -139,46 +154,8 @@ method store*(self: var IoRegisters; a: Address; src: pointer; length: uint16) =
     else:
       self.cpu.memCtrl.disableBootRom()
   else:
-    debug &"undefined I/O: 0xff{a:02x}"
-  copyMem(addr self.r[a], src, length)
-
-proc loadFile(path: string): seq[byte] =
-  let f = open(path)
-  defer: f.close()
-
-  let fileSize = f.getFileSize()
-  result = newSeq[byte](fileSize)
-  assert f.readBytes(result, 0, fileSize) == fileSize
-
-type
-  Cartridge* = ref object of Rom
-
-func header(self: Cartridge): ptr Header = 
-  cast[ptr Header](unsafeAddr self.data[0x100])
-
-func validateChecksum(self: Cartridge): bool =
-  var sum = 0u16
-  for i in 0..<0x14e:
-    sum = (sum + self.data[i]) and 0xffff
-
-  for i in 0x150..<self.data.len:
-    sum = (sum + self.data[i]) and 0xffff
-
-  sum == self.header.globalChecksum
-
-proc newCartridge*(path: string): Cartridge =
-  result = Cartridge()
-  initRom(result, loadFile(path))
-  echo &"ROM file path: {path}, size: {result.data.len} bytes"
-  echo &"Header: {result.header[]}"
-  echo &"Logo is valid: {result.header[].validateLogo}"
-  echo &"Header is valid: {result.header[].validateChecksum}"
-
-method load*(self: Cartridge; a: Address; dest: pointer; length: uint16) =
-  debug "Cartridges.load"
-
-method store*(self: var Cartridge; a: Address; src: pointer; length: uint16) =
-  debug "Cartridges.store"
+    debug &"I/O store not impl: 0xff{a:02x}"
+  self.r[a] = v
 
 type
   EchoRam* = ref object of Memory
@@ -186,17 +163,22 @@ type
     mctrl {.cursor.}: MemoryCtrl
 
 proc newEchoRam*(target: Address; mctrl: MemoryCtrl): EchoRam =
-  EchoRam(target: target, mctrl: mctrl)
+  result = EchoRam()
+  Memory.init(result, ECHO)
+  result.target = target
+  result.mctrl = mctrl
 
 method load*(self: EchoRam; a: Address; dest: pointer; length: uint16) =
-  let mem = self.mctrl.region(self.target + a)
+  let offset = a - self.region.a
+  let mem = self.mctrl.lookup(self.target + offset)
   assert mem != nil, &"address 0x{a:04x} is not mapped"
-  mem.load(a, dest, length)
+  mem.load(offset, dest, length)
 
 method store*(self: var EchoRam; a: Address; src: pointer; length: uint16) =
-  var mem = self.mctrl.region(self.target + a)
+  let offset = a - self.region.a
+  var mem = self.mctrl.lookup(self.target + offset)
   assert mem != nil, &"address 0x{a:04x} is not mapped"
-  mem.store(a, src, length)
+  mem.store(offset, src, length)
 
 type
   Peripheral = ref object of RootObj
@@ -210,23 +192,23 @@ proc main =
     running = false
   )
 
-  let bootrom = newRom(loadFile("DMG_ROM.bin"))
-  let cartridge = newCartridge("pokemon.gb")
   var c = newSm83()
   let mc = newMemoryCtrl()
-  mc.map(BOOTROM, bootrom)
-  mc.map(ROM0, cartridge)
-  mc.map(VRAM, newVideoRam())
-  mc.map(SRAM, newRam(8 * 1024))
-  mc.map(OAM, newSpriteAttrTable())
-  mc.map(WRAM0, newRam(4 * 1024))
-  mc.map(WRAMX, newRam(4 * 1024))
-  mc.map(ECHO, newEchoRam(0xc000, mc))
-  mc.map(HRAM, newHighRam())
-  mc.map(IOREGS, newIoRegisters(c))
+  mc.map(newRom(BOOTROM, loadFile("DMG_ROM.bin")))
+  mc.map(newVideoRam())
+  mc.map(newSpriteAttrTable())
+  mc.map(newRam(WRAM0))
+  mc.map(newRam(WRAMX))
+  mc.map(newEchoRam(0xc000, mc))
+  mc.map(newHighRam())
+  mc.map(newIoRegisters(c))
+
+  let cartridge = newCartridge("tetris.gb")
+  cartridge.mount(mc)
+
   c.memCtrl = mc 
 
-  while running and c.ticks < 400000:
+  while running and c.ticks < 550000:
     c.step()
 
   info "bye"

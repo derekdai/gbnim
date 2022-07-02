@@ -1,12 +1,14 @@
-import memory
-import std/strformat
+import cpu, memory, utils, types
+import std/[logging, strformat]
 
 const
-  NintendoLogo: array[16 * 3, byte] = [
+  NintendoLogo* = [
     0xceu8, 0xed, 0x66, 0x66, 0xcc, 0x0d, 0x00, 0x0b, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0c, 0x00, 0x0d,
     0x00,   0x08, 0x11, 0x1f, 0x88, 0x89, 0x00, 0x0e, 0xdc, 0xcc, 0x6e, 0xe6, 0xdd, 0xdd, 0xd9, 0x99,
     0xbb,   0xbb, 0x67, 0x63, 0x6e, 0x0e, 0xec, 0xcc, 0xdd, 0xdc, 0x99, 0x9f, 0xbb, 0xb9, 0x33, 0x3e,
   ]
+  RomBankSize* = 16 * Kilo
+  RamBankSize* = 8 * Kilo
 
 type
   CgbFlag* = distinct byte
@@ -82,41 +84,35 @@ func `$`*(v: SgbFlag): string =
   of SgbEnabled: "Use SGB Functions"
   else: &"0x{v.ord:02x}(Bad Flag)"
 
-const
-  RomBankInBytes = 16 * 1024
-
 converter bytes*(rs: RomSize): int =
   case byte(rs)
   of 0x00..0x08:
-    return (RomBankInBytes * 2) shl byte(rs);
+    return (RomBankSize * 2) shl byte(rs);
   of 0x52:
-    return RomBankInBytes * 72;
+    return RomBankSize * 72;
   of 0x53:
-    return RomBankInBytes * 80;
+    return RomBankSize * 80;
   of 0x54:
-    return RomBankInBytes * 96;
+    return RomBankSize * 96;
   else:
     return 0
 
-func `$`*(rs: RomSize): string = &"0x{byte(rs):02x}({rs.bytes div RomBankInBytes} Banks, {rs.bytes div 1024}K bytes)"
-
-const
-  RamBankInBytes = 8 * 1024
+func `$`*(rs: RomSize): string = &"0x{byte(rs):02x}({rs.bytes div RomBankSize} Banks, {rs.bytes div Kilo}K bytes)"
 
 converter bytes*(rs: RamSize): int =
   case byte(rs)
   of 0x2:
-    return RamBankInBytes * 1;
+    return RamBankSize * 1;
   of 0x3:
-    return RamBankInBytes * 4;
+    return RamBankSize * 4;
   of 0x4:
-    return RamBankInBytes * 16;
+    return RamBankSize * 16;
   of 0x5:
-    return RamBankInBytes * 8;
+    return RamBankSize * 8;
   else:
     return 0
 
-func `$`*(rs: RamSize): string = &"0x{byte(rs):02x}({rs.bytes div RamBankInBytes} Banks, {rs.bytes div 1024}K bytes)"
+func `$`*(rs: RamSize): string = &"0x{byte(rs):02x}({rs.bytes div RamBankSize} Banks, {rs.bytes div Kilo}K bytes)"
 
 func `$`*(d: Destination): string =
   case byte(d)
@@ -126,9 +122,10 @@ func `$`*(d: Destination): string =
 
 func `$`*(t: Title): string =
   for c in array[sizeof(Title), char](t):
+    if c < ' ': break
     result.add c
 
-func features(m: MbcId): MbcFeatures =
+func features*(m: MbcId): MbcFeatures =
   case byte(m)
   of 0x00: {Rom}
   of 0x01: {Mbc1}
@@ -377,4 +374,61 @@ func `$`*(o: OldLicensee): string =
   of 0xf3: "extreme entertainment"
   of 0xff: "ljn"
   else: &"0x{uint8(o):02x}"
+
+type
+  Bytes* = ptr UncheckedArray[byte]
+  RomBank = ref object of Memory
+    data: Bytes
+
+proc newRomBank(region: MemoryRegion; data: Bytes): RomBank =
+  result = RomBank()
+  Memory.init(result, region)
+  result.data = data
+
+func switch*(self: RomBank; data: Bytes) =
+  self.data = data
+
+method load*(self: RomBank; a: Address; dest: pointer; length: uint16) =
+  debug "RomBank.load"
+  copyMem(dest, unsafeAddr self.data[a - self.region.a], length)
+
+method store*(self: var RomBank; a: Address; src: pointer; length: uint16) =
+  debug "RomBank.store"
+  debug &"no ROM region specific implemention: {self.region}"
+
+type
+  Cartridge* = ref object
+    data: seq[byte]
+
+func header*(self: Cartridge): Header {.inline.} = 
+  cast[ptr Header](unsafeAddr self.data[0x100])[]
+
+func validateChecksum*(self: Cartridge): bool =
+  var sum = 0u16
+  for i in 0..<0x14e:
+    sum = (sum + self.data[i]) and 0xffff
+
+  for i in 0x150..<self.data.len:
+    sum = (sum + self.data[i]) and 0xffff
+
+  sum == self.header.globalChecksum
+
+proc newCartridge*(path: string): Cartridge =
+  result = Cartridge(data: loadFile(path))
+  echo &"Loading ROM: {path}"
+  echo &"  Size: {result.data.len} bytes"
+  echo &"  Logo is valid: {result.header.validateLogo}"
+  echo &"  Header is valid: {result.header.validateChecksum}"
+  echo &"  Header: {result.header}"
+
+func numRomBanks*(self: Cartridge): int = self.header.romSize div RomBankSize
+
+func numRamBanks*(self: Cartridge): int = self.header.ramSize div RamBankSize
+
+proc mount*(self: Cartridge; mctrl: MemoryCtrl) =
+  let rom0 = newRomBank(ROM0, cast[ptr UncheckedArray[byte]](unsafeAddr self.data[ROM0.a]))
+  mctrl.map(rom0) 
+
+proc unmount*(self: Cartridge; mctrl: MemoryCtrl) =
+  mctrl.unmap(ROM0) 
 

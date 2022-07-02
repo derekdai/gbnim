@@ -41,10 +41,28 @@ type
     regs: array[Reg8Index, byte]
     mctrl: MemoryCtrl
     ticks: int
+    intrMasterEnable: bool
+    intrEnable: InterruptFlags
 
 const
   NZ = InvFlag(Z.ord)
   NC = InvFlag(Flag.C.ord)
+
+type
+  InterruptEnableReg = ref object of Memory
+    cpu {.cursor.}: Sm83
+
+proc newInterruptEnableReg(cpu: Sm83): InterruptEnableReg =
+  result = InterruptEnableReg()
+  Memory.init(result, IE)
+  result.cpu = cpu
+
+method load*(self: InterruptEnableReg; a: Address; dest: pointer; length: uint16) =
+  cast[ptr byte](dest)[] = cast[byte](self.cpu.intrEnable)
+
+method store*(self: var InterruptEnableReg; a: Address; src: pointer; length: uint16) =
+  cast[ptr byte](addr self.cpu.intrEnable)[] = cast[ptr byte](src)[]
+  debug &"IE: {self.cpu.intrEnable}"
 
 proc `-=`(self: var Flags; fs: Flags) {.inline.} = self = self - fs
 
@@ -54,7 +72,9 @@ proc ticks*(self: Sm83): int = self.ticks
 
 proc memCtrl*(self: Sm83): MemoryCtrl {.inline.} = self.mctrl
 proc memCtrl*(self: var Sm83): var MemoryCtrl {.inline.} = self.mctrl
-proc `memCtrl=`*(self: Sm83, mctrl: MemoryCtrl) {.inline.} = self.mctrl = mctrl
+proc `memCtrl=`*(self: Sm83, mctrl: MemoryCtrl) =
+  mctrl.map(newInterruptEnableReg(self))
+  self.mctrl = mctrl
 
 converter toReg8Index(r: Register8): Reg8Index =
   const lut = [1, 0, 3, 2, 5, 4, 6, 7, 8, 9, 10, 11]
@@ -178,7 +198,6 @@ proc setValue(i: Indir[(Address, Register8)]; cpu: var Sm83; v: uint8) {.inline.
 proc value(r: Register16; cpu: Sm83): uint16 {.inline.} = cpu.r(r)
 proc value(r: Reg16Inv; cpu: Sm83): uint16 {.inline.} = 1 + not cpu.r(Register16(r.ord))
 proc setValue(r: Register16; cpu: var Sm83; v: uint16) {.inline.} = cpu.r(r) = v
-func inv(r: Register16): Reg16Inv = Reg16Inv(r.ord)
 
 proc value(pair: Reg16Imme8; cpu: var Sm83): uint16 {.inline.} =
   let v1 = cast[uint32](int32(cast[int8](cpu.fetch)))
@@ -249,25 +268,12 @@ proc `$`(r: Reg16Inc): string = &"{Register16(r.ord)}+"
 proc `$`(r: Reg16Dec): string = &"{Register16(r.ord)}-"
 proc `$`[T](i: Indir[T]): string = &"({i.toT})"
 proc `$`(r: Reg8Inv): string = &"{Register8(r.ord)}"
-proc `$`(r: Reg16Inv): string = &"{Register16(r.ord)}"
 proc `$`[T](i: IndirInv[T]): string = &"({i.toT})"
 
 type
   OpcodeEntry = proc(cpu: var Sm83; opcode: uint8): int {.nimcall.}
 
 proc opNop(cpu: var Sm83; opcode: uint8): int = discard
-
-func toReg16[R: static uint](opcode: uint8): uint8 {.inline.} =
-  ## for opcodes like 0x03 BC
-  ##                  0x13 DE
-  ##                  0x23 HL
-  ##                  0x33 AF
-  ## or
-  ##                  0xc5 BC
-  ##                  0xd5 DE
-  ##                  0xe5 HL
-  ##                  0xf5 SP
-  (opcode shr 4) - uint8(R shr 4)
 
 proc opInc[T: static AddrModes; I: static SomeInteger](cpu: var Sm83; opcode: uint8): int =
   when I == 1:
@@ -341,15 +347,15 @@ proc opJp[S: static AddrModes; F: static FlagSet](cpu: var Sm83; opcode: uint8):
     cpu.pc = v
     result = 4
 
-proc opPop(cpu: var Sm83; opcode: uint8): int =
-  let r = Register16(toReg16[0xc0](opcode))
+proc opPop[D: static AddrModes](cpu: var Sm83; opcode: uint8): int =
   let v = cpu.pop
-  debug &"POP {r}"
-  cpu.r(r) = v
+  debug &"POP {D}"
+  D.setValue(cpu, v)
 
 proc opPush[S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
+  let v = S.value(cpu)
   debug &"PUSH {S}"
-  cpu.push S.value(cpu)
+  cpu.push v
 
 proc opRet[F: static Flags; I: static bool](cpu: var Sm83; opcode: uint8): int =
   let c =
@@ -599,12 +605,11 @@ proc opCp[S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
       else: {N, H, C}
 
 proc opIme(cpu: var Sm83; opcode: uint8): int =
-  if opcode == 0xf3:
-    debug "DI"
-    cpu.f.excl IME
-  else:
+  cpu.intrMasterEnable = opcode != 0xf3
+  if cpu.intrMasterEnable:
     debug "EI"
-    cpu.f.incl IME
+  else:
+    debug "DI"
 
 const cbOpcodes = [    
   (t: 8, entry: opRl[B, {Z}]),
@@ -867,7 +872,6 @@ const cbOpcodes = [
 
 proc prefixCb(cpu: var Sm83; opcode: uint8): int =
   let opcode = cpu.fetch
-  debug &"| opcode: 0xcb{opcode:02x}"
   let desc = cbOpcodes[opcode]
   desc.entry(cpu, opcode) + desc.t
 
@@ -1065,7 +1069,7 @@ const opcodes = [
   (t: 8, entry: opCp[HL.indir]),
   (t: 4, entry: opCp[A]),
   (t: 8, entry: opRet[{Z}, true]),         # 0xc0
-  (t: 12, entry: opPop),
+  (t: 12, entry: opPop[BC]),
   (t: 12, entry: opJp[Immediate16Tag, {NZ}]),
   (t: 12, entry: opJp[Immediate16Tag, {}]),
   (t: 12, entry: opCall[{Z}, true]),
@@ -1081,7 +1085,7 @@ const opcodes = [
   (t: 8, entry: opAdd[A, Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 8, entry: opRet[{Flag.C}, true]),         # 0xd0
-  (t: 12, entry: opPop),
+  (t: 12, entry: opPop[DE]),
   (t: 12, entry: opJp[Immediate16Tag, {NC}]),
   (t: 0, entry: opIllegal),
   (t: 12, entry: opCall[{Flag.C}, true]),
@@ -1097,7 +1101,7 @@ const opcodes = [
   (t: 8, entry: opAdd[A, Immediate8Tag.inv]),
   (t: 0, entry: opUnimpl),
   (t: 12, entry: opLd[(Address(0xff00), Immediate8Tag).indir, A]),       # 0xe0
-  (t: 12, entry: opPop),
+  (t: 12, entry: opPop[HL]),
   (t: 8, entry: opLd[(Address(0xff00), Register8.C).indir, A]),
   (t: 0, entry: opIllegal),
   (t: 0, entry: opIllegal),
@@ -1112,16 +1116,16 @@ const opcodes = [
   (t: 0, entry: opIllegal),
   (t: 8, entry: opXor[Immediate8Tag]),
   (t: 0, entry: opUnimpl),
-  (t: 0, entry: opLd[A, (Address(0xff00), Immediate8Tag).indir]),         # 0xf0
-  (t: 12, entry: opPop),
-  (t: 0, entry: opLd[A, (Address(0xff00), Register8.C).indir]),
+  (t: 12, entry: opLd[A, (Address(0xff00), Immediate8Tag).indir]),         # 0xf0
+  (t: 12, entry: opPop[AF]),
+  (t: 8, entry: opLd[A, (Address(0xff00), Register8.C).indir]),
   (t: 4, entry: opIme),
   (t: 0, entry: opIllegal),
   (t: 16, entry: opPush[AF]),
   (t: 8, entry: opOr[Immediate8Tag]),
   (t: 0, entry: opUnimpl),
-  (t: 0, entry: opLd[HL, (SP, Immediate8Tag)]),
-  (t: 0, entry: opLd[SP, HL]),
+  (t: 12, entry: opLd[HL, (SP, Immediate8Tag)]),
+  (t: 8, entry: opLd[SP, HL]),
   (t: 16, entry: opLd[A, Immediate16Tag.indir]),
   (t: 4, entry: opIme),
   (t: 0, entry: opIllegal),
@@ -1136,5 +1140,5 @@ proc step*(self: var Sm83) =
   let opcode = self.fetch
   let desc = opcodes[opcode]
   let t = desc.entry(self, opcode)
-  debug &"- clocks({self.ticks})+={desc.t:02d}+{t:02d}"
+  debug &"- clocks({self.ticks})+={desc.t}+{t}"
   self.ticks += desc.t + t

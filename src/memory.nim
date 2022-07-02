@@ -1,5 +1,5 @@
 import types, utils
-import std/[logging, strformat]
+import std/[logging, strformat, options]
 
 type
   MemoryRegion* = Slice[Address]
@@ -17,33 +17,35 @@ const
   UNUSED* = MemoryRegion(0xfe00.Address..0xfe9f.Address)
   IOREGS* = MemoryRegion(0xff00.Address..0xff7f.Address)
   HRAM* = MemoryRegion(0xff80.Address..0xfffe.Address)
-  IEREGS* = MemoryRegion(0xffff.Address..0xffff.Address)
-  MemoryRegions = [BOOTROM, ROM0, ROMX, VRAM, SRAM, WRAM0, WRAMX, ECHO, OAM, UNUSED,
-      IOREGS, HRAM, IEREGS, ]
+  IE* = MemoryRegion(0xffff.Address..0xffff.Address)
 
 type
   Memory* = ref object of RootObj
     region: MemoryRegion
 
-func `region`(self: Memory): lent MemoryRegion = self.region
-func `region=`(self: var Memory; region: MemoryRegion) = self.region = region
+func init*(T: typedesc[Memory]; self: T; region: MemoryRegion) =
+  self.region = region
+
+func `region`*(self: Memory): lent MemoryRegion = self.region
+func `region=`*(self: var Memory; region: MemoryRegion) = self.region = region
 
 method load*(self: Memory; a: Address; dest: pointer;
-    length: uint16) {.base.} = debug "Memory.load"
+    length: uint16) {.base.} = assert false, &"Memory.load(0x{a:04x}) not implemented"
 
 method store*(self: var Memory; a: Address; src: pointer;
-    length: uint16) {.base.} = debug "Memory.store"
+    length: uint16) {.base.} = assert false, &"Memory.store(0x{a:04x}) not implemented"
 
 type
   Rom* = ref object of Memory
     data: seq[byte]
 
-func initRom*(self: Rom; data: sink seq[byte]) =
+func initRom*(self: Rom; region: MemoryRegion; data: sink seq[byte]) =
+  Memory.init(self, region)
   self.data = data
 
-proc newRom*(data: sink seq[byte]): Rom =
+proc newRom*(region: MemoryRegion; data: sink seq[byte]): Rom =
   result = Rom()
-  initRom(result, data)
+  initRom(result, region, data)
 
 func data*(self: Rom): lent seq[byte] = self.data
 
@@ -55,42 +57,55 @@ method store*(self: var Rom; a: Address; src: pointer; length: uint16) =
 
 type
   MemoryCtrl* = ref object
-    offset: int
-    regions: array[MemoryRegions.len, Memory]
+    bootrom: Memory
+    mappings: seq[Memory]
 
 proc newMemoryCtrl*(): MemoryCtrl = result = MemoryCtrl()
 
-func lookup(a: Address; offset: int): int {.inline.} =
-  ## `binarySearch` is too expensive for this small array
-  for i in offset..<MemoryRegions.len:
-    if a in MemoryRegions[i]:
-      return i
+func lookup*(self: MemoryCtrl; a: Address): Memory =
+  for m in self.mappings:
+    if a in m.region:
+      return m
 
-func enableBootRom*(self: var MemoryCtrl) = self.offset = 0
+func maped*(self: MemoryCtrl; a: Address): bool =
+  self.lookup(a) != nil
 
-func disableBootRom*(self: var MemoryCtrl) = self.offset = 1
+func map*(self: MemoryCtrl; mem: sink Memory) =
+  assert(mem.region.b != 0)
+  if mem.region == BOOTROM:
+    self.bootrom = mem
+  for i, m in self.mappings:
+    if mem.region == m.region:
+      self.mappings[i] = mem
+      return
+  self.mappings.add mem
 
-func region*(self: MemoryCtrl; a: Address): Memory {.inline.} =
-  self.regions[a.lookup(self.offset)]
+func unmap*(self: MemoryCtrl; region: MemoryRegion) =
+  for i, m in self.mappings:
+    if region == m.region:
+      self.mappings.del(i)
+      break
 
-func map*(self: MemoryCtrl; region: MemoryRegion; m: sink Memory) {.inline.} =
-  m.region = region
-  self.regions[(region.b - 1).lookup(self.offset)] = m
+func enableBootRom*(self: var MemoryCtrl) {.inline.} =
+  self.map(self.bootrom)
+
+func disableBootRom*(self: var MemoryCtrl) {.inline.} =
+  self.unmap(BOOTROM)
 
 when not declared(getBacktrace):
   func getBacktrace*(): string {.inline.} = discard
 
 proc load*[T: SomeInteger](self: MemoryCtrl; a: Address): T {.inline.} =
-  var mem = self.region(a)
+  var mem = self.lookup(a)
   assert mem != nil, &"address 0x{a:04x} is not mapped: {getBacktrace()}"
-  mem.load(a - mem.region.a, addr result, sizeof(result).uint16)
-  debug &"| {result.hex:10} < {a.hex}"
+  mem.load(a, addr result, sizeof(result).uint16)
+  debug &"| {result.hex} < {a.hex}"
 
 proc store*[T: SomeInteger](self: var MemoryCtrl; a: Address; v: T) {.inline.} =
-  var mem = self.region(a)
+  var mem = self.lookup(a)
   assert mem != nil, &"address 0x{a:04x} is not mapped: {getBacktrace()}"
-  mem.store(a - mem.region.a, unsafeAddr v, sizeof(v).uint16)
-  debug &"| {v.hex:10} > {a.hex}"
+  debug &"| {v.hex} > {a.hex}"
+  mem.store(a, unsafeAddr v, sizeof(v).uint16)
 
 proc `[]`*(self: MemoryCtrl; a: Address): byte {.inline.} = load[typeof(result)](self, a)
 
