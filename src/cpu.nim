@@ -995,7 +995,7 @@ const opcodes = [
   (t: 8, entry: opLd[HL.indir, Register8.H]),
   (t: 8, entry: opLd[HL.indir, L]),
   (t: 4, entry: opHalt),
-  (t: 8, entry: opLd[A, A]),
+  (t: 8, entry: opLd[HL.indir, A]),
   (t: 8, entry: opLd[A, B]),
   (t: 8, entry: opLd[A, Register8.C]),
   (t: 8, entry: opLd[A, D]),
