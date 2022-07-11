@@ -17,3 +17,14 @@ proc loadFile*(path: string): seq[byte] =
   result = newSeq[byte](fileSize)
   assert f.readBytes(result, 0, fileSize) == fileSize
 
+proc errQuit*[T](ret: T): auto {.inline.} =
+  when T is SomeInteger:
+    if ret != 0:
+      fatal sdl.getError()
+      quit(1)
+  else:
+    if ret == nil:
+      fatal sdl.getError()
+      quit(1)
+    ret
+

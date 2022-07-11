@@ -19,6 +19,14 @@ const
   HRAM* = MemoryRegion(0xff80.Address..0xfffe.Address)
   IE* = MemoryRegion(0xffff.Address..0xffff.Address)
 
+const
+  IoLcdc* = Address(0xff40)
+  IoScy* = Address(0xff42)
+  IoScx* = Address(0xff43)
+  IoLy* = Address(0xff44)
+  IoLyc* = Address(0xff45)
+  IoBgp* = Address(0xff47)
+
 type
   Memory* = ref object of RootObj
     region: MemoryRegion
@@ -34,26 +42,6 @@ method load*(self: Memory; a: Address; dest: pointer;
 
 method store*(self: var Memory; a: Address; src: pointer;
     length: uint16) {.base, locks: "unknown".} = assert false, &"Memory.store(0x{a:04x}) not implemented"
-
-type
-  Rom* = ref object of Memory
-    data: seq[byte]
-
-func initRom*(self: Rom; region: MemoryRegion; data: sink seq[byte]) =
-  Memory.init(self, region)
-  self.data = data
-
-proc newRom*(region: MemoryRegion; data: sink seq[byte]): Rom =
-  result = Rom()
-  initRom(result, region, data)
-
-func data*(self: Rom): lent seq[byte] = self.data
-
-method load*(self: Rom; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
-  copyMem(dest, addr self.data[a - self.region.a], length)
-
-method store*(self: var Rom; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
-  debug &"no ROM region specific implemention: {self.region}"
 
 type
   MemoryCtrl* = ref object
@@ -97,18 +85,83 @@ when not declared(getBacktrace):
 
 proc load*[T: SomeInteger](self: MemoryCtrl; a: Address): T {.inline.} =
   var mem = self.lookup(a)
-  assert mem != nil, &"address 0x{a:04x} is not mapped: {getBacktrace()}"
-  mem.load(a, addr result, sizeof(result).uint16)
-  debug &"| {result.hex} < {a.hex}"
+  if mem == nil:
+    warn &"load from unmapped address 0x{a:04x}"
+  else:
+    mem.load(a, addr result, sizeof(result).uint16)
+    debug &"| {result.hex} < {a.hex}"
 
 proc store*[T: SomeInteger](self: var MemoryCtrl; a: Address; v: T) {.inline.} =
   var mem = self.lookup(a)
-  assert mem != nil, &"address 0x{a:04x} is not mapped: {getBacktrace()}"
-  debug &"| {v.hex} > {a.hex}"
-  mem.store(a, unsafeAddr v, sizeof(v).uint16)
+  if mem == nil:
+    warn &"store to unmapped address 0x{a:04x}"
+  else:
+    mem.store(a, unsafeAddr v, sizeof(v).uint16)
+    debug &"| {v.hex} > {a.hex}"
 
 proc `[]`*(self: MemoryCtrl; a: Address): byte {.inline.} = load[typeof(result)](self, a)
 
 proc `[]=`*(self: var MemoryCtrl; a: Address; v: byte) {.inline.} = self.store(a, v)
 
 proc `[]=`*(self: var MemoryCtrl; a: Address; v: uint16) {.inline.} = self.store(a, v)
+
+type
+  EchoRam* = ref object of Memory
+    target: Address
+    mctrl {.cursor.}: MemoryCtrl
+
+proc newEchoRam*(target: Address; mctrl: MemoryCtrl): EchoRam =
+  result = EchoRam()
+  Memory.init(result, ECHO)
+  result.target = target
+  result.mctrl = mctrl
+
+method load*(self: EchoRam; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
+  let offset = a - self.region.a
+  let mem = self.mctrl.lookup(self.target + offset)
+  assert mem != nil, &"address 0x{a:04x} is not mapped"
+  mem.load(offset, dest, length)
+
+method store*(self: var EchoRam; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
+  let offset = a - self.region.a
+  var mem = self.mctrl.lookup(self.target + offset)
+  assert mem != nil, &"address 0x{a:04x} is not mapped"
+  mem.store(offset, src, length)
+
+type
+  Rom* = ref object of Memory
+    data: seq[byte]
+
+func initRom*(self: Rom; region: MemoryRegion; data: sink seq[byte]) =
+  Memory.init(self, region)
+  self.data = data
+
+proc newRom*(region: MemoryRegion; data: sink seq[byte]): Rom =
+  result = Rom()
+  initRom(result, region, data)
+
+func data*(self: Rom): lent seq[byte] = self.data
+
+method load*(self: Rom; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
+  if a in 0x00a8u16..0x00d7u16:
+    debug &"logo {self.data[a - self.region.a]:02x}"
+  copyMem(dest, addr self.data[a - self.region.a], length)
+
+method store*(self: var Rom; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
+  debug &"no ROM region specific implemention: {self.region}"
+
+type
+  Ram* = ref object of Memory
+    buf: seq[byte]
+
+proc newRam*(region: MemoryRegion): Ram =
+  result = Ram()
+  Memory.init(result, region)
+  result.buf = newSeq[byte](region.b - region.a + 1)
+
+method load*(self: Ram; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
+  copyMem(dest, addr self.buf[a - self.region.a], length)
+
+method store*(self: var Ram; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
+  copyMem(addr self.buf[a - self.region.a], src, length)
+
