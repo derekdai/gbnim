@@ -15,6 +15,16 @@ proc ioLoadUnimpl(cpu: Sm83; a: Address; d: var byte) =
 proc ioStoreUnimpl(cpu: Sm83; a: Address; s: byte) =
   debug &"I/O store not implemented for 0x{a:04x}"
 
+proc loadBootRomState(cpu: Sm83; a: Address; d: var byte) = discard
+
+proc storeBootRomState(cpu: Sm83; a: Address; s: byte) =
+  if s == 0:
+    cpu.memCtrl.enableBootRom()
+  else:
+    cpu.memCtrl.disableBootRom()
+
+func setHandler*(self: IoMemory; a: Address; load: IoLoad; store: IoStore)
+
 proc newIoMemory*(cpu: Sm83): IoMemory =
   result = IoMemory()
   Memory.init(result, IOREGS)
@@ -26,6 +36,8 @@ proc newIoMemory*(cpu: Sm83): IoMemory =
   )
   for e in result.entries.mitems:
     e = unimpl
+
+  result.setHandler(IoBootRom, loadBootRomState, storeBootRomState)
 
 method load*(self: IoMemory; a: Address; dest: pointer;
     length: uint16) {.locks: "unknown".} =

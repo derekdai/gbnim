@@ -26,6 +26,7 @@ const
   IoLy* = Address(0xff44)
   IoLyc* = Address(0xff45)
   IoBgp* = Address(0xff47)
+  IoBootRom* = Address(0xff50)
 
 type
   Memory* = ref object of RootObj
@@ -74,11 +75,13 @@ func unmap*(self: MemoryCtrl; region: MemoryRegion) =
       self.mappings.del(i)
       break
 
-func enableBootRom*(self: var MemoryCtrl) {.inline.} =
+proc enableBootRom*(self: MemoryCtrl) {.inline.} =
   self.map(self.bootrom)
+  debug "Boot ROM mapped"
 
-func disableBootRom*(self: var MemoryCtrl) {.inline.} =
+proc disableBootRom*(self: MemoryCtrl) {.inline.} =
   self.unmap(BOOTROM)
+  debug "Boot ROM unmapped"
 
 when not declared(getBacktrace):
   func getBacktrace*(): string {.inline.} = discard
