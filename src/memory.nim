@@ -19,15 +19,6 @@ const
   HRAM* = MemoryRegion(0xff80.Address..0xfffe.Address)
   IE* = MemoryRegion(0xffff.Address..0xffff.Address)
 
-const
-  IoLcdc* = Address(0xff40)
-  IoScy* = Address(0xff42)
-  IoScx* = Address(0xff43)
-  IoLy* = Address(0xff44)
-  IoLyc* = Address(0xff45)
-  IoBgp* = Address(0xff47)
-  IoBootRom* = Address(0xff50)
-
 type
   Memory* = ref object of RootObj
     region: MemoryRegion

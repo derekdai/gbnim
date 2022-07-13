@@ -105,9 +105,21 @@ const
   TileMapResolution = (w: 256, h: 48 + 256 + 256 + 2)
 
 type
+  LcdMode = enum
+    lmHBlank
+    lmVBlank
+    lmReadOam
+    lmTrans
+  LcdcStatus = object
+    mode {.bitsize: 2.}: LcdMode
+    concidence {.bitsize: 1.}: bool
+    mode0Intr {.bitsize: 1.}: bool
+    mode1Intr {.bitsize: 1.}: bool
+    mode2Intr {.bitsize: 1.}: bool
+    concidenceIntr {.bitsize: 1.}: bool
   Ppu* = ref object of Memory
     flags: PpuFlags
-    cpu {.cursor.}: Sm83
+    ticks: Tick
     win: sdl.Window
     rend: sdl.Renderer
     txt: sdl.Texture
@@ -118,6 +130,7 @@ type
     tileWin: sdl.Window
     tileRend: sdl.Renderer
     tileTxt: sdl.Texture
+    stat: LcdcStatus
     vram: array[VRAM.len, byte]
 
 proc `=destroy`(self: var typeof(Ppu()[])) =
@@ -153,14 +166,13 @@ proc storeBgp(self: Ppu; s: byte) =
 
 proc loadScy(self: Ppu; d: var byte) = d = self.scx
 proc storeScy(self: Ppu; s: byte) =
-  debug &"SCY={s}"
   self.scy = s
+  debug &"SCY: {self.scy}"
 
 proc loadScx(self: Ppu; d: var byte) = d = self.scy
 proc storeScx(self: Ppu; s: byte) =
-  debug &"SCX={s}"
-  if self.scx != s:
-    self.scx = s
+  self.scx = s
+  debug &"SCX: {self.scx}"
 
 converter toByte(v: Lcdc): byte {.inline.} = cast[byte](v)
 proc loadLcdc(self: Ppu; d: var byte) = d = self.lcdc
@@ -169,12 +181,17 @@ proc storeLcdc(self: Ppu; s: byte) =
     self.flags.incl Dirty
     self.flags.incl VramDirty
   self.lcdc = cast[Lcdc](s)
+  debug &"LCDC: {self.lcdc}"
 
-proc loadLy(self: Ppu; d: var byte) = d = 144
-proc storeLy(self: Ppu; s: byte) = debug &"LY={self.ly}"
+proc loadLy(self: Ppu; d: var byte) =
+  debug &"LY: {self.ly}"
+  d = self.ly
+proc storeLy(self: Ppu; s: byte) =
+  ## Writing will reset the counter?
+  discard
 
-proc newPpu*(cpu: Sm83; iom: IoMemory): Ppu =
-  var ppu = Ppu(cpu: cpu, flags: {Dirty, VRamDirty})
+proc newPpu*(iom: IoMemory): Ppu =
+  var ppu = Ppu(flags: {Dirty, VRamDirty})
   Memory.init(ppu, VRAM)
   iom.setHandler IoBgp,
     proc(cpu: Sm83; a: Address; d: var byte) = loadBgp(ppu, d),
@@ -288,12 +305,42 @@ proc updateLcdView(self: Ppu) =
 
   self.rend.renderPresent()
 
-proc process*(self: Ppu) =
+func lcdEnabled(self: Ppu): bool {.inline.} = self.lcdc.lcdEnable
+
+proc process*(self: Ppu; cpu: Sm83; ticks: Tick) =
   if VRamDirty in self.flags:
     self.updateTileMapView()
     self.flags.excl VRamDirty
 
-  if Dirty in self.flags:
-    self.updateLcdView()
-    self.flags.excl Dirty
+  #if Dirty in self.flags:
+  #  self.updateLcdView()
+  #  self.flags.excl Dirty
 
+  self.ticks += ticks
+  case self.stat.mode
+  of lmHBlank:
+    if self.ticks >= 207:
+      self.ticks -= 207
+      self.ly.inc
+      self.stat.concidence = self.ly == self.lyc
+      self.stat.mode =
+        if self.ly == 144:
+          cpu.setInterrupt(VBlank)
+          lmVBlank
+        else:
+          lmReadOam
+  of lmVBlank:
+    if self.ticks >= 456:
+      self.ticks -= 456
+      self.ly.inc
+      if self.ly >= 153:
+        self.stat.mode = lmReadOam
+        cpu.clearInterrupt(VBlank)
+  of lmReadOam:
+    if self.ticks >= 83:
+      self.stat.mode = lmTrans
+      self.ticks -= 83
+  of lmTrans:
+    if self.ticks >= 229:
+      self.stat.mode = lmHBlank
+      self.ticks -= 229

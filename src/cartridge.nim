@@ -389,11 +389,9 @@ func switch*(self: RomBank; data: Bytes) =
   self.data = data
 
 method load*(self: RomBank; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
-  debug "RomBank.load"
   copyMem(dest, unsafeAddr self.data[a - self.region.a], length)
 
 method store*(self: var RomBank; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
-  debug "RomBank.store"
   debug &"no ROM region specific implemention: {self.region}"
 
 type
@@ -429,6 +427,12 @@ proc mount*(self: Cartridge; mctrl: MemoryCtrl) =
   let rom0 = newRomBank(ROM0, cast[ptr UncheckedArray[byte]](unsafeAddr self.data[ROM0.a]))
   mctrl.map(rom0) 
 
+  if self.data.len >= ROMX.a.int:
+    let romx = newRomBank(ROMX, cast[ptr UncheckedArray[byte]](unsafeAddr self.data[ROMX.a]))
+    mctrl.map(romx) 
+
 proc unmount*(self: Cartridge; mctrl: MemoryCtrl) =
+  if self.data.len >= ROMX.a.int:
+    mctrl.unmap(ROMX) 
   mctrl.unmap(ROM0) 
 

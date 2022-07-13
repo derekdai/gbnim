@@ -6,6 +6,8 @@ const
   MCycles* = Clock shr 2
   TCycles* = Clock shr 0
 
+  InterruptVector = Address(0x0040)
+
 type
   Register8* = enum
     B, C,
@@ -25,7 +27,7 @@ type
     Pad0,
     Pad1,
     Pad2,
-    IME,
+    Pad3,
     C,
     H,
     N,
@@ -36,44 +38,64 @@ type
   FlagSet =
     Flags |
     InvFlags
+
+proc `-=`(self: var Flags; fs: Flags) {.inline.} = self = self - fs
+
+type
   Reg8Index = 0..PCH.ord
-  Sm83* = ref object
+  Tick* = int
+  Interrupt* = enum
+    VBlank
+    LcdStat
+    Timer
+    Serial
+    Joypad
+  InterruptFlags* = set[Interrupt]
+  CpuFlag = enum
+    cfIme
+    cfSuspend
+  CpuFlags = set[CpuFlag]
+  Sm83* = ref object of Memory
+    flags: CpuFlags
     regs: array[Reg8Index, byte]
     mctrl: MemoryCtrl
-    ticks: int
-    intrMasterEnable: bool
-    intrEnable: InterruptFlags
+    freq: int
+    ticks: Tick
+    ie: InterruptFlags
+    `if`: InterruptFlags
 
 const
   NZ = InvFlag(Z.ord)
   NC = InvFlag(Flag.C.ord)
 
-type
-  InterruptEnableReg = ref object of Memory
-    cpu {.cursor.}: Sm83
+method load*(self: Sm83; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
+  cast[ptr byte](dest)[] = cast[byte](self.ie)
 
-proc newInterruptEnableReg(cpu: Sm83): InterruptEnableReg =
-  result = InterruptEnableReg()
+method store*(self: var Sm83; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
+  cast[ptr byte](addr self.ie)[] = cast[ptr byte](src)[]
+  debug &"IE: {self.ie}"
+
+func loadIf*(self: Sm83; a: Address; d: var byte) =
+  d = cast[byte](self.if)
+
+proc storeIf*(self: Sm83; a: Address; s: byte) =
+  self.if = cast[InterruptFlags](s)
+  debug &"IF: {self.if}"
+
+proc newSm83*(freq: int): Sm83 =
+  result = Sm83(freq: freq)
   Memory.init(result, IE)
-  result.cpu = cpu
 
-method load*(self: InterruptEnableReg; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
-  cast[ptr byte](dest)[] = cast[byte](self.cpu.intrEnable)
+func freq*(self: Sm83): int = self.freq
 
-method store*(self: var InterruptEnableReg; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
-  cast[ptr byte](addr self.cpu.intrEnable)[] = cast[ptr byte](src)[]
-  debug &"IE: {self.cpu.intrEnable}"
+func ticks*(self: Sm83): int = self.ticks
 
-proc `-=`(self: var Flags; fs: Flags) {.inline.} = self = self - fs
-
-proc newSm83*(): Sm83 = Sm83()
-
-proc ticks*(self: Sm83): int = self.ticks
-
-proc memCtrl*(self: Sm83): MemoryCtrl {.inline.} = self.mctrl
-proc memCtrl*(self: var Sm83): var MemoryCtrl {.inline.} = self.mctrl
-proc `memCtrl=`*(self: Sm83, mctrl: MemoryCtrl) =
-  mctrl.map(newInterruptEnableReg(self))
+func memCtrl*(self: Sm83): MemoryCtrl {.inline.} = self.mctrl
+func memCtrl*(self: var Sm83): var MemoryCtrl {.inline.} = self.mctrl
+func `memCtrl=`*(self: Sm83, mctrl: MemoryCtrl) =
+  if self.mctrl != nil:
+    self.mctrl.unmap(IE)
+  mctrl.map(self)
   self.mctrl = mctrl
 
 converter toReg8Index(r: Register8): Reg8Index =
@@ -185,9 +207,9 @@ func inverted[T](_: T): bool =
   else:
     false
 
-proc value(r: Register8; cpu: Sm83): uint8 {.inline.} = cpu.r(r)
-proc value(r: Reg8Inv; cpu: Sm83): uint8 {.inline.} = 1 + not cpu.r(Register8(r.ord))
-proc setValue(r: Register8; cpu: var Sm83; v: uint8) {.inline.} = cpu.r(r) = v
+func value(r: Register8; cpu: Sm83): uint8 {.inline.} = cpu.r(r)
+func value(r: Reg8Inv; cpu: Sm83): uint8 {.inline.} = 1 + not cpu.r(Register8(r.ord))
+func setValue(r: Register8; cpu: var Sm83; v: uint8) {.inline.} = cpu.r(r) = v
 func inv(r: Register8): Reg8Inv = Reg8Inv(r.ord)
 
 proc value(i: Indir[(Address, Register8)]; cpu: var Sm83): uint8 {.inline.} =
@@ -195,9 +217,9 @@ proc value(i: Indir[(Address, Register8)]; cpu: var Sm83): uint8 {.inline.} =
 proc setValue(i: Indir[(Address, Register8)]; cpu: var Sm83; v: uint8) {.inline.} =
   cpu.mctrl[i.toT[0] + cpu.r(i.toT[1])] = v
 
-proc value(r: Register16; cpu: Sm83): uint16 {.inline.} = cpu.r(r)
-proc value(r: Reg16Inv; cpu: Sm83): uint16 {.inline.} = 1 + not cpu.r(Register16(r.ord))
-proc setValue(r: Register16; cpu: var Sm83; v: uint16) {.inline.} = cpu.r(r) = v
+func value(r: Register16; cpu: Sm83): uint16 {.inline.} = cpu.r(r)
+func value(r: Reg16Inv; cpu: Sm83): uint16 {.inline.} = 1 + not cpu.r(Register16(r.ord))
+func setValue(r: Register16; cpu: var Sm83; v: uint16) {.inline.} = cpu.r(r) = v
 
 proc value(pair: Reg16Imme8; cpu: var Sm83): uint16 {.inline.} =
   let v1 = cast[uint32](int32(cast[int8](cpu.fetch)))
@@ -269,11 +291,41 @@ proc `$`(r: Reg16Dec): string = &"{Register16(r.ord)}-"
 proc `$`[T](i: Indir[T]): string = &"({i.toT})"
 proc `$`(r: Reg8Inv): string = &"{Register8(r.ord)}"
 proc `$`[T](i: IndirInv[T]): string = &"({i.toT})"
+proc `$`(f: InvFlag): string =
+  let f = Flag(f.ord)
+  if f == Z:
+    "NZ"
+  elif f == C:
+    "NC"
+  else:
+    ""
 
 type
   OpcodeEntry = proc(cpu: var Sm83; opcode: uint8): int {.nimcall.}
 
-proc opNop(cpu: var Sm83; opcode: uint8): int = discard
+func suspended*(self: Sm83): bool {.inline.} = cfSuspend in self.flags
+
+func suspend*(self: Sm83) {.inline.} = self.flags.incl cfSuspend
+
+func awake*(self: Sm83) {.inline.} = self.flags.excl cfSuspend
+
+func ime*(self: Sm83): bool {.inline.} = cfIme in self.flags
+
+func `ime=`*(self: Sm83; v: bool) {.inline.} =
+  if v:
+    self.flags.incl cfIme
+  else:
+    self.flags.excl cfIme
+
+proc opSuspend(cpu: var Sm83; opcode: uint8): int =
+  if opcode == 0x10:
+    debug "STOP"
+  else:
+    debug "HALT"
+  cpu.suspend
+
+proc opNop(cpu: var Sm83; opcode: uint8): int =
+  debug "NOP"
 
 proc opInc[T: static AddrModes; I: static SomeInteger](cpu: var Sm83; opcode: uint8): int =
   when I == 1:
@@ -342,6 +394,7 @@ proc check(fs: static FlagSet; cpu: Sm83): bool {.inline.} =
     else: true
 
 proc opJp[S: static AddrModes; F: static FlagSet](cpu: var Sm83; opcode: uint8): int =
+  debug &"JP {F},{S}"
   let v = S.value(cpu)
   if F.check(cpu):
     cpu.pc = v
@@ -495,10 +548,6 @@ proc opRr[T: static AddrModes; F: static Flags](cpu: var Sm83; opcode: uint8): i
       cpu.f.incl Z
   T.setValue(cpu, v)
 
-proc opHalt(cpu: var Sm83; opcode: uint8): int =
-  debug "HALT"
-  while true: discard
-
 proc opAdd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
   let adc = (opcode and 0xf) > 7
   let s = S.value(cpu)
@@ -605,11 +654,12 @@ proc opCp[S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
       else: {N, H, C}
 
 proc opIme(cpu: var Sm83; opcode: uint8): int =
-  cpu.intrMasterEnable = opcode != 0xf3
-  if cpu.intrMasterEnable:
-    debug "EI"
-  else:
+  if opcode == 0xf3:
     debug "DI"
+    cpu.flags.excl cfIme
+  else:
+    debug "EI"
+    cpu.flags.incl cfIme
 
 const cbOpcodes = [    
   (t: 8, entry: opRl[B, {Z}]),
@@ -892,7 +942,7 @@ const opcodes = [
   (t: 4, entry: opInc[Register8.C, 0xff]),
   (t: 8, entry: opLd[Register8.C, Immediate8Tag]),
   (t: 4, entry: opRr[A, {}]),
-  (t: 0, entry: opUnimpl),         # 0x10
+  (t: 4, entry: opSuspend),         # 0x10
   (t: 12, entry: opLd[DE, Immediate16Tag]),
   (t: 8, entry: opLd[DE.indir, A]),
   (t: 8, entry: opInc[DE, 1]),
@@ -994,7 +1044,7 @@ const opcodes = [
   (t: 8, entry: opLd[HL.indir, E]),
   (t: 8, entry: opLd[HL.indir, Register8.H]),
   (t: 8, entry: opLd[HL.indir, L]),
-  (t: 4, entry: opHalt),
+  (t: 4, entry: opSuspend),
   (t: 8, entry: opLd[HL.indir, A]),
   (t: 8, entry: opLd[A, B]),
   (t: 8, entry: opLd[A, Register8.C]),
@@ -1071,7 +1121,7 @@ const opcodes = [
   (t: 8, entry: opRet[{Z}, true]),         # 0xc0
   (t: 12, entry: opPop[BC]),
   (t: 12, entry: opJp[Immediate16Tag, {NZ}]),
-  (t: 12, entry: opJp[Immediate16Tag, {}]),
+  (t: 12, entry: opJp[Immediate16Tag, {}.Flags]),
   (t: 12, entry: opCall[{Z}, true]),
   (t: 16, entry: opPush[BC]),
   (t: 8, entry: opAdd[A, Immediate8Tag]),
@@ -1109,7 +1159,7 @@ const opcodes = [
   (t: 8, entry: opAnd[Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 0, entry: opUnimpl),
-  (t: 0, entry: opJp[HL, {}]), # t: 0 is not typo
+  (t: 0, entry: opJp[HL, {}.Flags]), # t: 0 is not typo
   (t: 16, entry: opLd[Immediate16Tag.indir, A]),
   (t: 0, entry: opIllegal),
   (t: 0, entry: opIllegal),
@@ -1132,13 +1182,34 @@ const opcodes = [
   (t: 0, entry: opIllegal),
   (t: 8, entry: opCp[Immediate8Tag]),
   (t: 0, entry: opUnimpl),
-]                      
+]
+
+func setInterrupt*(self: Sm83; intr: Interrupt) =
+  self.if.incl intr
                        
-proc step*(self: var Sm83) =
-  debug &"| PC:{self.pc.hex} SP:{self.sp.hex} A:{self.r(A).hex} F:{self.f} BC:{self.r(BC).hex} DE:{self.r(DE).hex} HL:{self.r(HL).hex}"
+func clearInterrupt*(self: Sm83; intr: Interrupt) =
+  self.if.excl intr
+
+proc step*(self: var Sm83): Tick {.discardable.} =
+  if self.suspended:
+    if self.if == {}:
+      return
+    self.awake
+
+  debug &"| PC:{self.pc.hex} SP:{self.sp.hex} A:{self.r(A).hex} F:{self.f} BC:{self.r(BC).hex} DE:{self.r(DE).hex} HL:{self.r(HL).hex} IE:{self.ie} IF:{self.if}"
+
+  if self.ime:
+    let iset = self.ie * self.if
+    if iset != {}:
+      self.ime = false
+      self.push(self.pc)
+      let intr = Interrupt(cast[byte](iset).firstSetBit() - 1)
+      self.if.excl intr
+      self.pc = InterruptVector + byte(intr.ord shl 3)
 
   let opcode = self.fetch
   let desc = opcodes[opcode]
   let t = desc.entry(self, opcode)
   debug &"- clocks({self.ticks})+={desc.t}+{t}"
-  self.ticks += desc.t + t
+  result = desc.t + t
+  self.ticks += result
