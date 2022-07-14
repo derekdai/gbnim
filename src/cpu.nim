@@ -517,6 +517,11 @@ proc opCpl(cpu: var Sm83; opcode: uint8): int =
   cpu.f = cpu.f - {N, H}
   cpu.r(A) = not cpu.r(A)
 
+proc opSwap[T: static AddrModes](cpu: var Sm83; opcode: uint8): int =
+  debug &"SWAP {T}"
+  let v = T.value(cpu)
+  T.setValue(cpu, (v shl 4) or (v shr 4))
+
 proc opRl[T: static AddrModes; F: static Flags](cpu: var Sm83; opcode: uint8): int =
   var v = T.value(cpu)
   var f: Flags
@@ -686,7 +691,7 @@ const cbOpcodes = [
   (t: 8, entry: opRl[E, {Z}]),
   (t: 8, entry: opRl[Register8.H, {Z}]),
   (t: 8, entry: opRl[L, {Z}]),
-  (t: 16, entry: opRl[HL.indir, {Z}]),
+  (t: 12, entry: opRl[HL.indir, {Z}]),
   (t: 8, entry: opRl[A, {Z}]),
   (t: 8, entry: opRr[B, {Z}]),
   (t: 8, entry: opRr[Register8.C, {Z}]),
@@ -694,7 +699,7 @@ const cbOpcodes = [
   (t: 8, entry: opRr[E, {Z}]),
   (t: 8, entry: opRr[Register8.H, {Z}]),
   (t: 8, entry: opRr[L, {Z}]),
-  (t: 16, entry: opRr[HL.indir, {Z}]),
+  (t: 12, entry: opRr[HL.indir, {Z}]),
   (t: 8, entry: opRr[A, {Z}]),
   (t: 8, entry: opRl[B, {Z}]),         # 0x10
   (t: 8, entry: opRl[Register8.C, {Z}]),
@@ -702,7 +707,7 @@ const cbOpcodes = [
   (t: 8, entry: opRl[E, {Z}]),
   (t: 8, entry: opRl[Register8.H, {Z}]),
   (t: 8, entry: opRl[L, {Z}]),
-  (t: 16, entry: opRl[HL.indir, {Z}]),
+  (t: 12, entry: opRl[HL.indir, {Z}]),
   (t: 8, entry: opRl[A, {Z}]),
   (t: 8, entry: opRr[B, {Z}]),
   (t: 8, entry: opRr[Register8.C, {Z}]),
@@ -710,7 +715,7 @@ const cbOpcodes = [
   (t: 8, entry: opRr[E, {Z}]),
   (t: 8, entry: opRr[Register8.H, {Z}]),
   (t: 8, entry: opRr[L, {Z}]),
-  (t: 16, entry: opRr[HL.indir, {Z}]),
+  (t: 12, entry: opRr[HL.indir, {Z}]),
   (t: 8, entry: opRr[A, {Z}]),
   (t: 0, entry: opCbUnimpl),         # 0x20
   (t: 0, entry: opCbUnimpl),
@@ -728,21 +733,21 @@ const cbOpcodes = [
   (t: 0, entry: opCbUnimpl),
   (t: 0, entry: opCbUnimpl),
   (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),         # 0x30
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
+  (t: 4, entry: opSwap[B]),         # 0x30
+  (t: 4, entry: opSwap[Register8.C]),
+  (t: 4, entry: opSwap[D]),
+  (t: 4, entry: opSwap[E]),
+  (t: 4, entry: opSwap[Register8.H]),
+  (t: 4, entry: opSwap[L]),
+  (t: 12, entry: opSwap[HL.indir]),
+  (t: 4, entry: opSwap[A]),
   (t: 4, entry: opSrl[B]),
   (t: 4, entry: opSrl[Register8.C]),
   (t: 4, entry: opSrl[D]),
   (t: 4, entry: opSrl[E]),
   (t: 4, entry: opSrl[Register8.H]),
   (t: 4, entry: opSrl[L]),
-  (t: 4, entry: opSrl[HL.indir]),
+  (t: 12, entry: opSrl[HL.indir]),
   (t: 4, entry: opSrl[A]),
   (t: 4, entry: opBit[0, B]),         # 0x40
   (t: 4, entry: opBit[0, Register8.C]),
@@ -814,7 +819,7 @@ const cbOpcodes = [
   (t: 4, entry: opRes[0, E]),
   (t: 4, entry: opRes[0, Register8.H]),
   (t: 4, entry: opRes[0, L]),
-  (t: 8, entry: opRes[0, HL.indir]),
+  (t: 12, entry: opRes[0, HL.indir]),
   (t: 4, entry: opRes[0, A]),
   (t: 4, entry: opRes[1, B]),
   (t: 4, entry: opRes[1, Register8.C]),
@@ -822,7 +827,7 @@ const cbOpcodes = [
   (t: 4, entry: opRes[1, E]),
   (t: 4, entry: opRes[1, Register8.H]),
   (t: 4, entry: opRes[1, L]),
-  (t: 8, entry: opRes[1, HL.indir]),
+  (t: 12, entry: opRes[1, HL.indir]),
   (t: 4, entry: opRes[1, A]),
   (t: 4, entry: opRes[2, B]),         # 0x90
   (t: 4, entry: opRes[2, Register8.C]),
@@ -830,7 +835,7 @@ const cbOpcodes = [
   (t: 4, entry: opRes[2, E]),
   (t: 4, entry: opRes[2, Register8.H]),
   (t: 4, entry: opRes[2, L]),
-  (t: 8, entry: opRes[2, HL.indir]),
+  (t: 12, entry: opRes[2, HL.indir]),
   (t: 4, entry: opRes[2, A]),
   (t: 4, entry: opRes[3, B]),
   (t: 4, entry: opRes[3, Register8.C]),
@@ -838,7 +843,7 @@ const cbOpcodes = [
   (t: 4, entry: opRes[3, E]),
   (t: 4, entry: opRes[3, Register8.H]),
   (t: 4, entry: opRes[3, L]),
-  (t: 8, entry: opRes[3, HL.indir]),
+  (t: 12, entry: opRes[3, HL.indir]),
   (t: 4, entry: opRes[3, A]),
   (t: 4, entry: opRes[4, B]),         # 0xa0
   (t: 4, entry: opRes[4, Register8.C]),
@@ -846,7 +851,7 @@ const cbOpcodes = [
   (t: 4, entry: opRes[4, E]),
   (t: 4, entry: opRes[4, Register8.H]),
   (t: 4, entry: opRes[4, L]),
-  (t: 8, entry: opRes[4, HL.indir]),
+  (t: 12, entry: opRes[4, HL.indir]),
   (t: 4, entry: opRes[4, A]),
   (t: 4, entry: opRes[5, B]),
   (t: 4, entry: opRes[5, Register8.C]),
@@ -854,7 +859,7 @@ const cbOpcodes = [
   (t: 4, entry: opRes[5, E]),
   (t: 4, entry: opRes[5, Register8.H]),
   (t: 4, entry: opRes[5, L]),
-  (t: 8, entry: opRes[5, HL.indir]),
+  (t: 12, entry: opRes[5, HL.indir]),
   (t: 4, entry: opRes[5, A]),
   (t: 4, entry: opRes[6, B]),         # 0xb0
   (t: 4, entry: opRes[6, Register8.C]),
@@ -862,7 +867,7 @@ const cbOpcodes = [
   (t: 4, entry: opRes[6, E]),
   (t: 4, entry: opRes[6, Register8.H]),
   (t: 4, entry: opRes[6, L]),
-  (t: 8, entry: opRes[6, HL.indir]),
+  (t: 12, entry: opRes[6, HL.indir]),
   (t: 4, entry: opRes[6, A]),
   (t: 4, entry: opRes[7, B]),
   (t: 4, entry: opRes[7, Register8.C]),
@@ -870,7 +875,7 @@ const cbOpcodes = [
   (t: 4, entry: opRes[7, E]),
   (t: 4, entry: opRes[7, Register8.H]),
   (t: 4, entry: opRes[7, L]),
-  (t: 8, entry: opRes[7, HL.indir]),
+  (t: 12, entry: opRes[7, HL.indir]),
   (t: 4, entry: opRes[7, A]),
   (t: 4, entry: opSet[0, B]),         # 0xc0
   (t: 4, entry: opSet[0, Register8.C]),
@@ -878,7 +883,7 @@ const cbOpcodes = [
   (t: 4, entry: opSet[0, E]),
   (t: 4, entry: opSet[0, Register8.H]),
   (t: 4, entry: opSet[0, L]),
-  (t: 8, entry: opSet[0, HL.indir]),
+  (t: 12, entry: opSet[0, HL.indir]),
   (t: 4, entry: opSet[0, A]),
   (t: 4, entry: opSet[1, B]),
   (t: 4, entry: opSet[1, Register8.C]),
@@ -886,7 +891,7 @@ const cbOpcodes = [
   (t: 4, entry: opSet[1, E]),
   (t: 4, entry: opSet[1, Register8.H]),
   (t: 4, entry: opSet[1, L]),
-  (t: 8, entry: opSet[1, HL.indir]),
+  (t: 12, entry: opSet[1, HL.indir]),
   (t: 4, entry: opSet[1, A]),
   (t: 4, entry: opSet[2, B]),         # 0xd0
   (t: 4, entry: opSet[2, Register8.C]),
@@ -894,7 +899,7 @@ const cbOpcodes = [
   (t: 4, entry: opSet[2, E]),
   (t: 4, entry: opSet[2, Register8.H]),
   (t: 4, entry: opSet[2, L]),
-  (t: 8, entry: opSet[2, HL.indir]),
+  (t: 12, entry: opSet[2, HL.indir]),
   (t: 4, entry: opSet[2, A]),
   (t: 4, entry: opSet[3, B]),
   (t: 4, entry: opSet[3, Register8.C]),
@@ -902,7 +907,7 @@ const cbOpcodes = [
   (t: 4, entry: opSet[3, E]),
   (t: 4, entry: opSet[3, Register8.H]),
   (t: 4, entry: opSet[3, L]),
-  (t: 8, entry: opSet[3, HL.indir]),
+  (t: 12, entry: opSet[3, HL.indir]),
   (t: 4, entry: opSet[3, A]),
   (t: 4, entry: opSet[4, B]),         # 0xe0
   (t: 4, entry: opSet[4, Register8.C]),
@@ -910,7 +915,7 @@ const cbOpcodes = [
   (t: 4, entry: opSet[4, E]),
   (t: 4, entry: opSet[4, Register8.H]),
   (t: 4, entry: opSet[4, L]),
-  (t: 8, entry: opSet[4, HL.indir]),
+  (t: 12, entry: opSet[4, HL.indir]),
   (t: 4, entry: opSet[4, A]),
   (t: 4, entry: opSet[5, B]),
   (t: 4, entry: opSet[5, Register8.C]),
@@ -918,7 +923,7 @@ const cbOpcodes = [
   (t: 4, entry: opSet[5, E]),
   (t: 4, entry: opSet[5, Register8.H]),
   (t: 4, entry: opSet[5, L]),
-  (t: 8, entry: opSet[5, HL.indir]),
+  (t: 12, entry: opSet[5, HL.indir]),
   (t: 4, entry: opSet[5, A]),
   (t: 4, entry: opSet[6, B]),         # 0xf0
   (t: 4, entry: opSet[6, Register8.C]),
@@ -926,7 +931,7 @@ const cbOpcodes = [
   (t: 4, entry: opSet[6, E]),
   (t: 4, entry: opSet[6, Register8.H]),
   (t: 4, entry: opSet[6, L]),
-  (t: 8, entry: opSet[6, HL.indir]),
+  (t: 12, entry: opSet[6, HL.indir]),
   (t: 4, entry: opSet[6, A]),
   (t: 4, entry: opSet[7, B]),
   (t: 4, entry: opSet[7, Register8.C]),
@@ -934,7 +939,7 @@ const cbOpcodes = [
   (t: 4, entry: opSet[7, E]),
   (t: 4, entry: opSet[7, Register8.H]),
   (t: 4, entry: opSet[7, L]),
-  (t: 8, entry: opSet[7, HL.indir]),
+  (t: 12, entry: opSet[7, HL.indir]),
   (t: 4, entry: opSet[7, A]),
 ]
 
