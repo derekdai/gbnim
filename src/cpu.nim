@@ -661,6 +661,18 @@ proc opIme(cpu: var Sm83; opcode: uint8): int =
     debug "EI"
     cpu.flags.incl cfIme
 
+proc opSrl[T: static AddrModes](cpu: var Sm83; opcode: uint8): int =
+  debug &"SLR {T}"
+  var v = T.value(cpu)
+  var f: Flags
+  if v.testBit(0):
+    cpu.f.incl C
+  v = v shr 1
+  if v == 0:
+    cpu.f.incl Z
+  cpu.f = f
+  T.setValue(cpu, v)
+
 const cbOpcodes = [    
   (t: 8, entry: opRl[B, {Z}]),
   (t: 8, entry: opRl[Register8.C, {Z}]),
@@ -718,14 +730,14 @@ const cbOpcodes = [
   (t: 0, entry: opCbUnimpl),
   (t: 0, entry: opCbUnimpl),
   (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
+  (t: 0, entry: opSrl[B]),
+  (t: 0, entry: opSrl[Register8.C]),
+  (t: 0, entry: opSrl[D]),
+  (t: 0, entry: opSrl[E]),
+  (t: 0, entry: opSrl[Register8.H]),
+  (t: 0, entry: opSrl[L]),
+  (t: 0, entry: opSrl[HL.indir]),
+  (t: 0, entry: opSrl[A]),
   (t: 4, entry: opBit[0, B]),         # 0x40
   (t: 4, entry: opBit[0, Register8.C]),
   (t: 4, entry: opBit[0, D]),
