@@ -512,6 +512,11 @@ proc opSet[B: static uint8; S: static AddrModes](cpu: var Sm83; opcode: uint8): 
   v.setBit(B)
   S.setValue(cpu, v)
 
+proc opCpl(cpu: var Sm83; opcode: uint8): int =
+  debug "CPL"
+  cpu.f = cpu.f - {N, H}
+  cpu.r(A) = not cpu.r(A)
+
 proc opRl[T: static AddrModes; F: static Flags](cpu: var Sm83; opcode: uint8): int =
   var v = T.value(cpu)
   var f: Flags
@@ -986,7 +991,7 @@ const opcodes = [
   (t: 4, entry: opInc[L, 1]),
   (t: 4, entry: opInc[L, 0xff]),
   (t: 8, entry: opLd[L, Immediate8Tag]),
-  (t: 0, entry: opUnimpl),
+  (t: 4, entry: opCpl),
   (t: 8, entry: opJr),         # 0x30
   (t: 12, entry: opLd[SP, Immediate16Tag]),
   (t: 8, entry: opLd[Reg16Dec(HL).indir, A]),
