@@ -411,9 +411,14 @@ proc opPush[S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
   cpu.push v
 
 proc opRet[F: static Flags; I: static bool](cpu: var Sm83; opcode: uint8): int =
-  let c =
+  let cond =
     when {}.Flags == F:
-      debug "RET"
+      if opcode == 0xd9:
+        ## RETI
+        debug "RETI"
+        cpu.ime = true
+      else:
+        debug "RET"
       true
     elif Z in F and I:
       debug "RET NZ"
@@ -439,7 +444,7 @@ proc opRet[F: static Flags; I: static bool](cpu: var Sm83; opcode: uint8): int =
         true
       else:
         false
-  if c:
+  if cond:
     cpu.pc = cpu.pop
     result = 12
 
@@ -1227,7 +1232,7 @@ proc step*(self: var Sm83): Tick {.discardable.} =
       return
     self.awake
 
-  debug &"| PC:{self.pc.hex} SP:{self.sp.hex} A:{self.r(A).hex} F:{self.f} BC:{self.r(BC).hex} DE:{self.r(DE).hex} HL:{self.r(HL).hex} IE:{self.ie} IF:{self.if}"
+  debug &"| PC:{self.pc.hex} SP:{self.sp.hex} A:{self.r(A).hex} F:{self.f} BC:{self.r(BC).hex} DE:{self.r(DE).hex} HL:{self.r(HL).hex} IE:{self.ie} IF:{self.if} Stat:{self.flags}"
 
   if self.ime:
     let iset = self.ie * self.if
@@ -1235,6 +1240,7 @@ proc step*(self: var Sm83): Tick {.discardable.} =
       self.ime = false
       self.push(self.pc)
       let intr = Interrupt(cast[byte](iset).firstSetBit() - 1)
+      debug &"interrupted by {intr}"
       self.if.excl intr
       self.pc = InterruptVector + byte(intr.ord shl 3)
 

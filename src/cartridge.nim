@@ -392,7 +392,7 @@ method load*(self: RomBank; a: Address; dest: pointer; length: uint16) {.locks: 
   copyMem(dest, unsafeAddr self.data[a - self.region.a], length)
 
 method store*(self: var RomBank; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
-  debug &"unhandled store to ROM: {self.region}"
+  warn &"unhandled store to ROM: 0x{a:04x}"
 
 type
   Cartridge* = ref object
