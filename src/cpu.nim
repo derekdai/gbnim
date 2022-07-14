@@ -479,14 +479,14 @@ proc opCall[F: static Flags; I: static bool](cpu: var Sm83; opcode: uint8): int 
     result = 12
 
 proc opUnimpl(cpu: var Sm83; opcode: uint8): int =
-  fatal &"opcode {opcode.hex} not implemented yet"
+  warn &"opcode {opcode.hex} not implemented yet"
   quit(1)
 
 proc opIllegal(cpu: var Sm83; opcode: uint8): int =
-  fatal &"illegal opcode {opcode.hex}"
+  error &"illegal opcode {opcode.hex}"
 
 proc opCbUnimpl(cpu: var Sm83; opcode: uint8): int =
-  fatal &"opcode 0xcb{opcode:02x} is not implemented yet"
+  warn &"opcode 0xcb{opcode:02x} is not implemented yet"
   quit(1)
 
 proc opBit[B: static uint8; S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
