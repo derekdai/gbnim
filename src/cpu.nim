@@ -684,6 +684,11 @@ proc opSrl[T: static AddrModes](cpu: var Sm83; opcode: uint8): int =
     cpu.f.incl Z
   T.setValue(cpu, v)
 
+proc opRst[N: static Address](cpu: var Sm83; opcode: uint8): int =
+  debug &"RST {N:02x}"
+  cpu.push(cpu.pc)
+  cpu.pc = N
+
 const cbOpcodes = [    
   (t: 8, entry: opRl[B, {Z}]),
   (t: 8, entry: opRl[Register8.C, {Z}]),
@@ -1148,7 +1153,7 @@ const opcodes = [
   (t: 12, entry: opCall[{Z}, true]),
   (t: 16, entry: opPush[BC]),
   (t: 8, entry: opAdd[A, Immediate8Tag]),
-  (t: 0, entry: opUnimpl),
+  (t: 16, entry: opRst[0x00]),
   (t: 8, entry: opRet[{Z}, false]),
   (t: 8, entry: opRet[{}, false]),
   (t: 12, entry: opJp[Immediate16Tag, {Z}]),
@@ -1156,7 +1161,7 @@ const opcodes = [
   (t: 12, entry: opCall[{Z}, false]),
   (t: 12, entry: opCall[{}, false]),
   (t: 8, entry: opAdd[A, Immediate8Tag]),
-  (t: 0, entry: opUnimpl),
+  (t: 16, entry: opRst[0x08]),
   (t: 8, entry: opRet[{Flag.C}, true]),         # 0xd0
   (t: 12, entry: opPop[DE]),
   (t: 12, entry: opJp[Immediate16Tag, {NC}]),
@@ -1164,7 +1169,7 @@ const opcodes = [
   (t: 12, entry: opCall[{Flag.C}, true]),
   (t: 16, entry: opPush[DE]),
   (t: 8, entry: opAdd[A, Immediate8Tag.inv]),
-  (t: 0, entry: opUnimpl),
+  (t: 16, entry: opRst[0x10]),
   (t: 8, entry: opRet[{Flag.C}, false]),
   (t: 8, entry: opRet[{}, false]),
   (t: 12, entry: opJp[Immediate16Tag, {Flag.C}]),
@@ -1172,7 +1177,7 @@ const opcodes = [
   (t: 12, entry: opCall[{Flag.C}, false]),
   (t: 0, entry: opIllegal),
   (t: 8, entry: opAdd[A, Immediate8Tag.inv]),
-  (t: 0, entry: opUnimpl),
+  (t: 16, entry: opRst[0x18]),
   (t: 12, entry: opLd[(Address(0xff00), Immediate8Tag).indir, A]),       # 0xe0
   (t: 12, entry: opPop[HL]),
   (t: 8, entry: opLd[(Address(0xff00), Register8.C).indir, A]),
@@ -1180,7 +1185,7 @@ const opcodes = [
   (t: 0, entry: opIllegal),
   (t: 16, entry: opPush[HL]),
   (t: 8, entry: opAnd[Immediate8Tag]),
-  (t: 0, entry: opUnimpl),
+  (t: 16, entry: opRst[0x20]),
   (t: 0, entry: opUnimpl),
   (t: 0, entry: opJp[HL, {}.Flags]), # t: 0 is not typo
   (t: 16, entry: opLd[Immediate16Tag.indir, A]),
@@ -1188,7 +1193,7 @@ const opcodes = [
   (t: 0, entry: opIllegal),
   (t: 0, entry: opIllegal),
   (t: 8, entry: opXor[Immediate8Tag]),
-  (t: 0, entry: opUnimpl),
+  (t: 16, entry: opRst[0x28]),
   (t: 12, entry: opLd[A, (Address(0xff00), Immediate8Tag).indir]),         # 0xf0
   (t: 12, entry: opPop[AF]),
   (t: 8, entry: opLd[A, (Address(0xff00), Register8.C).indir]),
@@ -1196,7 +1201,7 @@ const opcodes = [
   (t: 0, entry: opIllegal),
   (t: 16, entry: opPush[AF]),
   (t: 8, entry: opOr[Immediate8Tag]),
-  (t: 0, entry: opUnimpl),
+  (t: 16, entry: opRst[0x30]),
   (t: 12, entry: opLd[HL, (SP, Immediate8Tag)]),
   (t: 8, entry: opLd[SP, HL]),
   (t: 16, entry: opLd[A, Immediate16Tag.indir]),
@@ -1204,7 +1209,7 @@ const opcodes = [
   (t: 0, entry: opIllegal),
   (t: 0, entry: opIllegal),
   (t: 8, entry: opCp[Immediate8Tag]),
-  (t: 0, entry: opUnimpl),
+  (t: 16, entry: opRst[0x38]),
 ]
 
 func setInterrupt*(self: Sm83; intr: Interrupt) =
