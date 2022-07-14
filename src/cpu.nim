@@ -514,38 +514,40 @@ proc opSet[B: static uint8; S: static AddrModes](cpu: var Sm83; opcode: uint8): 
 
 proc opRl[T: static AddrModes; F: static Flags](cpu: var Sm83; opcode: uint8): int =
   var v = T.value(cpu)
+  var f: Flags
+  if v.testBit(7):
+    f.incl C
   let c =
     if (opcode shr 4) == 0:
       debug &"RLC {T}"
       v shr 7
     else:
       debug &"RL {T}"
-      (C in cpu.f).uint8
-  cpu.f = {}
-  if v shr 7 != 0:
-    cpu.f.incl C
+      uint8(C in cpu.f)
   v = (v shl 1) or c
   when Z in F.Flags:
     if v == 0:
-      cpu.f.incl Z
+      f.incl Z
+  cpu.f = f
   T.setValue(cpu, v)
 
 proc opRr[T: static AddrModes; F: static Flags](cpu: var Sm83; opcode: uint8): int =
   var v = T.value(cpu)
+  var f: Flags
+  if v.testBit(0):
+    f.incl C
   let c =
     if (opcode shr 4) == 0:
       debug &"RRC {T}"
-      (v and 1) shl 7
+      v and 1
     else:
       debug &"RR {T}"
-      (C in cpu.f).uint8 shr 7
-  cpu.f = {}
-  if (v and 1) != 0:
-    cpu.f.incl C
-  v = (v shr 1) or c
+      uint8(C in cpu.f)
+  v = (v shr 1) or (c shl 7)
   when Z in F.Flags:
     if v == 0:
-      cpu.f.incl Z
+      f.incl Z
+  cpu.f = f
   T.setValue(cpu, v)
 
 proc opAdd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
@@ -662,15 +664,14 @@ proc opIme(cpu: var Sm83; opcode: uint8): int =
     cpu.flags.incl cfIme
 
 proc opSrl[T: static AddrModes](cpu: var Sm83; opcode: uint8): int =
-  debug &"SLR {T}"
+  debug &"SRL {T}"
   var v = T.value(cpu)
-  var f: Flags
+  cpu.f = {}
   if v.testBit(0):
     cpu.f.incl C
   v = v shr 1
   if v == 0:
     cpu.f.incl Z
-  cpu.f = f
   T.setValue(cpu, v)
 
 const cbOpcodes = [    
