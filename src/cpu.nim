@@ -520,6 +520,9 @@ proc opCpl(cpu: var Sm83; opcode: uint8): int =
 proc opSwap[T: static AddrModes](cpu: var Sm83; opcode: uint8): int =
   debug &"SWAP {T}"
   let v = T.value(cpu)
+  cpu.f = {}
+  if v == 0:
+    cpu.f.incl Z
   T.setValue(cpu, (v shl 4) or (v shr 4))
 
 proc opRl[T: static AddrModes; F: static Flags](cpu: var Sm83; opcode: uint8): int =
