@@ -57,10 +57,6 @@ type
     winEnable {.bitsize: 1.}: bool
     winTileMap {.bitsize: 1.}: WinTileMap
     lcdEnable {.bitsize: 1.}: bool
-  PpuFlag = enum
-    Dirty
-    VRamDirty
-  PpuFlags = set[PpuFlag]
 
 converter toRgba(self: Shade): lent Rgba8888 {.inline.} =
   Colors[self.ord]
@@ -117,7 +113,23 @@ type
     mode1Intr {.bitsize: 1.}: bool
     mode2Intr {.bitsize: 1.}: bool
     concidenceIntr {.bitsize: 1.}: bool
-  Ppu* = ref object of Memory
+  PpuFlag = enum
+    Dirty
+    VRamDirty
+  PpuFlags = set[PpuFlag]
+  SpriteAttribute = object
+    cgbPalette {.bitsize: 2.}: byte
+    tileVBank {.bitsize: 1.}: byte
+    palette {.bitsize: 1.}: byte
+    xFlip {.bitsize: 1.}: bool
+    yFlip {.bitsize: 1.}: bool
+    bgWinOverObj {.bitsize: 1.}: bool
+  Sprite = object
+    y: byte
+    x: byte
+    tileIndex: byte
+    attrs: SpriteAttribute
+  Ppu* = ref object
     flags: PpuFlags
     ticks: Tick
     win: sdl.Window
@@ -132,6 +144,7 @@ type
     tileTxt: sdl.Texture
     stat: LcdcStatus
     vram: array[VRAM.len, byte]
+    oam: array[OAM.len, byte]
 
 proc `=destroy`(self: var typeof(Ppu()[])) =
   if self.txt != nil:
@@ -142,15 +155,6 @@ proc `=destroy`(self: var typeof(Ppu()[])) =
 
   if self.win != nil:
     self.rend.destroyWindow()
-
-method load*(self: Ppu; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
-  assert length == 1
-  cast[ptr byte](dest)[] = self.vram[a - self.region.a]
-
-method store*(self: var Ppu; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
-  assert length == 1
-  self.vram[a - self.region.a] = cast[ptr byte](src)[]
-  self.flags.incl VRamDirty
 
 func bgColor(self: Ppu; i: PaletteIndex): Shade {.inline.} =
   case i:
@@ -190,9 +194,41 @@ proc storeLy(self: Ppu; s: byte) =
   ## Writing will reset the counter?
   discard
 
-proc newPpu*(iom: IoMemory): Ppu =
+type
+  VideoRam = ref object of Memory
+    ppu {.cursor.}: Ppu
+
+proc newVideoRam(ppu: Ppu): VideoRam =
+  result = VideoRam(ppu: ppu)
+  Memory.init(result, VRAM)
+
+method load(self: VideoRam; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
+  assert length == 1
+  cast[ptr byte](dest)[] = self.ppu.vram[a - self.region.a]
+
+method store(self: var VideoRam; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
+  assert length == 1
+  self.ppu.vram[a - self.region.a] = cast[ptr byte](src)[]
+  self.ppu.flags.incl VRamDirty
+
+type
+  ObjAttrTable = ref object of Memory
+    ppu {.cursor.}: Ppu
+
+proc newObjAttrTable(ppu: Ppu): ObjAttrTable =
+  result = ObjAttrTable(ppu: ppu)
+  Memory.init(result, OAM)
+
+method load*(self: ObjAttrTable; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
+  warn &"unhandled load from 0x{a:04x}"
+
+method store*(self: var ObjAttrTable; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
+  assert length == 1
+  self.ppu.oam[a - OAM.a] = cast[ptr byte](src)[]
+
+proc newPpu*(mctrl: MemoryCtrl; iom: IoMemory): Ppu =
   var ppu = Ppu(flags: {Dirty, VRamDirty})
-  Memory.init(ppu, VRAM)
+
   iom.setHandler IoBgp,
     proc(cpu: Sm83; a: Address; d: var byte) = loadBgp(ppu, d),
     proc(cpu: Sm83; a: Address; s: byte) = storeBgp(ppu, s)
@@ -212,6 +248,12 @@ proc newPpu*(iom: IoMemory): Ppu =
   iom.setHandler IoLy,
     proc(cpu: Sm83; a: Address; d: var byte) = loadLy(ppu, d),
     proc(cpu: Sm83; a: Address; s: byte) = storeLy(ppu, s)
+
+  let vram = newVideoRam(ppu)
+  mctrl.map(vram)
+
+  let oam = newObjAttrTable(ppu)
+  mctrl.map(oam)
 
   ppu.win = createWindow(
     "gdnim",
@@ -294,8 +336,10 @@ proc updateTileMapView(self: Ppu) =
   self.tileRend.renderCopy(self.tileTxt, nil, nil).errQuit
   self.tileRend.renderPresent()
 
+func lcdEnabled(self: Ppu): bool {.inline.} = self.lcdc.lcdEnable
+
 proc updateLcdView(self: Ppu) =
-  if not self.lcdc.lcdEnable:
+  if not self.lcdEnabled:
     self.rend.setRenderDrawColor(ColorPowerOff.r, ColorPowerOff.g,
         ColorPowerOff.b, 0x00).errQuit
     self.rend.renderClear().errQuit
@@ -304,8 +348,6 @@ proc updateLcdView(self: Ppu) =
     self.rend.renderClear().errQuit
 
   self.rend.renderPresent()
-
-func lcdEnabled(self: Ppu): bool {.inline.} = self.lcdc.lcdEnable
 
 proc process*(self: Ppu; cpu: Sm83; ticks: Tick) =
   if VRamDirty in self.flags:

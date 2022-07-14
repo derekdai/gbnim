@@ -44,7 +44,7 @@ type
 
 proc newMemoryCtrl*(): MemoryCtrl = result = MemoryCtrl()
 
-func lookup*(self: MemoryCtrl; a: Address): Memory =
+func lookup(self: MemoryCtrl; a: Address): Memory =
   for m in self.mappings:
     if a in m.region:
       return m
@@ -56,9 +56,9 @@ func map*(self: MemoryCtrl; mem: sink Memory) =
   assert(mem.region.b != 0)
   if mem.region == BOOTROM:
     self.bootrom = mem
-  for i, m in self.mappings:
+  for m in self.mappings.mitems:
     if mem.region == m.region:
-      self.mappings[i] = mem
+      m = mem
       return
   self.mappings.add mem
 
