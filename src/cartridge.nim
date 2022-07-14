@@ -392,13 +392,13 @@ method load*(self: RomBank; a: Address; dest: pointer; length: uint16) {.locks: 
   copyMem(dest, unsafeAddr self.data[a - self.region.a], length)
 
 method store*(self: var RomBank; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
-  debug &"no ROM region specific implemention: {self.region}"
+  debug &"unhandled store to ROM: {self.region}"
 
 type
   Cartridge* = ref object
     data: seq[byte]
 
-func header*(self: Cartridge): Header {.inline.} = 
+func header*(self: Cartridge): lent Header {.inline.} = 
   cast[ptr Header](unsafeAddr self.data[0x100])[]
 
 func validateChecksum*(self: Cartridge): bool =
@@ -430,6 +430,10 @@ proc mount*(self: Cartridge; mctrl: MemoryCtrl) =
   if self.data.len >= ROMX.a.int:
     let romx = newRomBank(ROMX, cast[ptr UncheckedArray[byte]](unsafeAddr self.data[ROMX.a]))
     mctrl.map(romx) 
+
+  if self.header.mbc.features == {Mbc1}:
+    ## `cpu_instrs.gb` 會直接寫入這區, 未先進行 enable 的動作
+    mctrl.map(newRam(SRAM))
 
 proc unmount*(self: Cartridge; mctrl: MemoryCtrl) =
   if self.data.len >= ROMX.a.int:
