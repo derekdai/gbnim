@@ -636,27 +636,24 @@ proc opAnd[S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
   let v1 = A.value(cpu)
   let v2 = D.value(cpu)
   let r = v1 and v2
-  cpu.f = {Flag.H}
-  if r == 0:
-    cpu.f.incl Z
+  cpu.f = if r == 0: {Z,H} else: {Flag.H}
+  A.setValue(cpu, r)
 
 proc opXor[S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
   debug &"XOR A,{S}"
   let v1 = A.value(cpu)
   let v2 = D.value(cpu)
   let r = v1 xor v2
-  cpu.f = {}
-  if r == 0:
-    cpu.f.incl Z
+  cpu.f = if r == 0: {Z} else: {}
+  A.setValue(cpu, r)
 
 proc opOr[S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
   debug &"OR A,{S}"
   let v1 = A.value(cpu)
   let v2 = D.value(cpu)
   let r = v1 or v2
-  cpu.f = {}
-  if r == 0:
-    cpu.f.incl Z
+  cpu.f = if r == 0: {Z} else: {}
+  A.setValue(cpu, r)
 
 proc opCp[S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
   debug &"CP A,{S}"
