@@ -39,9 +39,10 @@ type
   Licensee* = distinct uint16
   OldLicensee* = distinct byte
   Title* = distinct array[0x13e-0x134+1, char]
+  Logo = array[0x133-0x104+1, byte]
   Header* {.packed.}= object
     entryPoint*: array[0x0103-0x0100+1, byte]
-    logo*: array[0x133-0x104+1, byte]
+    logo*: Logo
     title*: Title
     manufacture: array[0x142-0x013f+1, char]
     cgbFlag*: CgbFlag
@@ -71,6 +72,8 @@ func validateChecksum*(self: Header): bool =
   for i in 0..(0x14c-0x134):
     sum = (sum - bytes[i] - 1) and 0xff
   sum == self.checksum
+
+func `$`*(l: Logo): string = "[..]"
 
 func `$`*(v: CgbFlag): string =
   case v
