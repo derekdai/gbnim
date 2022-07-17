@@ -727,6 +727,14 @@ proc opSrl[T: static AddrModes](cpu: var Sm83; opcode: uint8): int =
     cpu.f.incl Z
   T.setValue(cpu, v)
 
+proc opSla[T: static AddrModes](cpu: var Sm83; opcode: uint8): int =
+  debug &"SLA {T}"
+  let v = T.value(cpu)
+  cpu.f{C} = v shr 7
+  let r = v shl 1
+  cpu.f{Z} = r == 0
+  T.setValue(cpu, r)
+
 proc opRst[N: static Address](cpu: var Sm83; opcode: uint8): int =
   debug &"RST {N:02x}"
   cpu.push(cpu.pc)
@@ -765,14 +773,14 @@ const cbOpcodes = [
   (t: 8, entry: opRr[L, {Z}]),
   (t: 12, entry: opRr[HL.indir, {Z}]),
   (t: 8, entry: opRr[A, {Z}]),
-  (t: 0, entry: opCbUnimpl),         # 0x20
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
+  (t: 4, entry: opSla[B]),         # 0x20
+  (t: 4, entry: opSla[Register8.C]),
+  (t: 4, entry: opSla[D]),
+  (t: 4, entry: opSla[E]),
+  (t: 4, entry: opSla[Register8.H]),
+  (t: 4, entry: opSla[L]),
+  (t: 12, entry: opSla[HL.indir]),
+  (t: 4, entry: opSla[A]),
   (t: 0, entry: opCbUnimpl),
   (t: 0, entry: opCbUnimpl),
   (t: 0, entry: opCbUnimpl),
