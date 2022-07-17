@@ -19,6 +19,8 @@ const
   HRAM* = MemoryRegion(0xff80.Address..0xfffe.Address)
   IE* = MemoryRegion(0xffff.Address..0xffff.Address)
 
+func `$`*(r: MemoryRegion): string = &"0x{r.a:04x}..0x{r.b:04x}"
+
 type
   Memory* = ref object of RootObj
     region: MemoryRegion
@@ -125,12 +127,8 @@ method load*(self: EchoRam; a: Address; dest: pointer;
 
 method store*(self: var EchoRam; a: Address; src: pointer;
     length: uint16) {.locks: "unknown".} =
-  let offset = a - self.region.a
-  var mem = self.mctrl.lookup(self.target + offset)
-  if mem != nil:
-    mem.store(offset, src, length)
-  else:
-    warn &"address 0x{a:04x} is not mapped"
+  assert length == 1
+  self.mctrl.store(self.target + (a - self.region.a), cast[ptr byte](src)[])
 
 type
   Rom* = ref object of Memory
@@ -151,6 +149,23 @@ method load*(self: Rom; a: Address; dest: pointer;
   copyMem(dest, addr self.data[a - self.region.a], length)
 
 method store*(self: var Rom; a: Address; src: pointer;
+    length: uint16) {.locks: "unknown".} =
+  warn &"unhandled store to 0x{a:04x}"
+
+type
+  NilRom* = ref object of Memory
+    value: byte
+
+proc newNilRom*(region: MemoryRegion; value: byte): NilRom =
+  result = NilRom(value: value)
+  Memory.init(result, region)
+
+method load*(self: NilRom; a: Address; dest: pointer;
+    length: uint16) {.locks: "unknown".} =
+  assert length == 1
+  cast[ptr byte](dest)[] = self.value
+
+method store*(self: var NilRom; a: Address; src: pointer;
     length: uint16) {.locks: "unknown".} =
   warn &"unhandled store to 0x{a:04x}"
 

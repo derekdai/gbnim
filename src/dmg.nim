@@ -9,21 +9,6 @@ const
 proc newHighRam*(): Ram = newRam(HRAM)
 
 type
-  SpriteAttrTable* = ref object of Memory
-
-proc newSpriteAttrTable*(): SpriteAttrTable =
-  result = SpriteAttrTable()
-  Memory.init(result, OAM)
-
-method load*(self: SpriteAttrTable; a: Address; dest: pointer;
-    length: uint16) {.locks: "unknown".} =
-  debug "OAM.load"
-
-method store*(self: var SpriteAttrTable; a: Address; src: pointer;
-    length: uint16) {.locks: "unknown".} =
-  debug "OAM.store"
-
-type
   Dmg* = ref object
     running: bool
     cart: Cartridge
@@ -40,15 +25,15 @@ proc newDmg*(bootRomPath = none[string]()): Dmg =
     memCtrl.map(newRom(BOOTROM, loadFile(bootRomPath.unsafeGet)))
   else:
     cpu.pc = 0x100
-  memCtrl.map(newSpriteAttrTable())
+  memCtrl.map(newNilRom(ROM0, 0xff))
+  memCtrl.map(newNilRom(ROMX, 0xff))
   memCtrl.map(newRam(WRAM0))
   memCtrl.map(newRam(WRAMX))
   memCtrl.map(newEchoRam(WRAM0.a, memCtrl))
   memCtrl.map(newHighRam())
   cpu.memCtrl = memCtrl
 
-  let ppu = newPpu(iomem)
-  memCtrl.map(ppu)
+  let ppu = newPpu(memCtrl, iomem)
 
   memCtrl.map(iomem)
 
