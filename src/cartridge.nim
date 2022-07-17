@@ -382,11 +382,13 @@ type
   Bytes* = ptr UncheckedArray[byte]
   RomBank = ref object of Memory
     data: Bytes
+    cart {.cursor.}: Cartridge
+  Cartridge* = ref object
+    data: seq[byte]
 
-proc newRomBank(region: MemoryRegion; data: Bytes): RomBank =
-  result = RomBank()
+proc newRomBank(cart: Cartridge; region: MemoryRegion; data: Bytes): RomBank =
+  result = RomBank(cart: cart, data: data)
   Memory.init(result, region)
-  result.data = data
 
 func switch*(self: RomBank; data: Bytes) =
   self.data = data
@@ -394,12 +396,10 @@ func switch*(self: RomBank; data: Bytes) =
 method load*(self: RomBank; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
   copyMem(dest, unsafeAddr self.data[a - self.region.a], length)
 
-method store*(self: var RomBank; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
-  warn &"unhandled store to ROM: 0x{a:04x}"
+proc requestMbc(self: Cartridge; a: Address; v: byte)
 
-type
-  Cartridge* = ref object
-    data: seq[byte]
+method store*(self: var RomBank; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
+  self.cart.requestMbc(a, cast[ptr byte](src)[])
 
 func header*(self: Cartridge): lent Header {.inline.} = 
   cast[ptr Header](unsafeAddr self.data[0x100])[]
@@ -422,16 +422,16 @@ proc newCartridge*(path: string): Cartridge =
   echo &"  Header is valid: {result.header.validateChecksum}"
   echo &"  Header: {result.header}"
 
-func numRomBanks*(self: Cartridge): int = self.header.romSize div RomBankSize
+func numRomBanks*(self: Cartridge): byte = byte(self.header.romSize div RomBankSize)
 
-func numRamBanks*(self: Cartridge): int = self.header.ramSize div RamBankSize
+func numRamBanks*(self: Cartridge): byte = byte(self.header.ramSize div RamBankSize)
 
 proc mount*(self: Cartridge; mctrl: MemoryCtrl) =
-  let rom0 = newRomBank(ROM0, cast[ptr UncheckedArray[byte]](unsafeAddr self.data[ROM0.a]))
+  let rom0 = newRomBank(self, ROM0, cast[ptr UncheckedArray[byte]](unsafeAddr self.data[ROM0.a]))
   mctrl.map(rom0) 
 
   if self.data.len >= ROMX.a.int:
-    let romx = newRomBank(ROMX, cast[ptr UncheckedArray[byte]](unsafeAddr self.data[ROMX.a]))
+    let romx = newRomBank(self, ROMX, cast[ptr UncheckedArray[byte]](unsafeAddr self.data[ROMX.a]))
     mctrl.map(romx) 
 
   if self.header.mbc.features == {Mbc1}:
@@ -443,3 +443,16 @@ proc unmount*(self: Cartridge; mctrl: MemoryCtrl) =
     mctrl.unmap(ROMX) 
   mctrl.unmap(ROM0) 
 
+proc requestMbc1(self: Cartridge; a: Address; v: byte) =
+  if a in 0x2000u16..0x3fffu16:
+    let v = v.clamp(1u8, self.numRomBanks)
+    debug &"map {ROMX} to bank {v}"
+  else:
+    warn &"unhandled store to ROM: 0x{v:02x} > 0x{a:04x}"
+
+proc requestMbc(self: Cartridge; a: Address; v: byte) =
+  let features = self.header.mbc.features
+  if {Mbc1, ROM} * features != {}:
+    self.requestMbc1(a, v)
+  else:
+    warn &"unhandled store to ROM: 0x{v:02x} > 0x{a:04x}"
