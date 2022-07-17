@@ -39,6 +39,18 @@ type
     Flags |
     InvFlags
 
+proc `+=`(self: var Flags; f: Flag) = self.incl f
+proc `+=`(self: var Flags; f: InvFlag) = self.excl Flag(f.ord)
+proc `-=`(self: var Flags; f: Flag) = self.excl f
+proc `-=`(self: var Flags; f: InvFlag) = self.incl Flag(f.ord)
+proc contains(self: Flags; f: InvFlag): bool = Flag(f.ord) notin self
+proc `{}=`(self: var Flags; f: Flag or InvFlag; v: bool) =
+  if v: self += f else: self -= f
+proc `{}`(self: Flags; f: Flag or InvFlag): bool =
+  f in self
+converter toBool(v: SomeInteger): bool =
+  assert v in {0..1}
+  cast[bool](v)
 proc `-=`(self: var Flags; fs: Flags) {.inline.} = self = self - fs
 
 type
@@ -127,8 +139,6 @@ func sp*(self: Sm83): Address {.inline.} = self.r(SP)
 func f*(self: var Sm83): var Flags {.inline.} = cast[ptr Flags](addr self.regs[F])[]
 func f*(self: Sm83): Flags {.inline.} = cast[ptr Flags](addr self.regs[F])[]
 func `f=`*(self: Sm83; flags: Flags) {.inline.} = cast[ptr Flags](addr self.regs[F])[] = flags
-func setF*(self: var Sm83; f: Flag) {.inline.} = self.f.incl(f)
-func clearF*(self: var Sm83; f: Flag) {.inline.} = self.f.excl(f)
 
 proc fetch(self: var Sm83): byte {.inline.} =
   result = load[byte](self.mctrl, self.pc)
@@ -568,6 +578,34 @@ proc opRr[T: static AddrModes; F: static Flags](cpu: var Sm83; opcode: uint8): i
   cpu.f = f
   T.setValue(cpu, v)
 
+proc opDaa(cpu: var Sm83; opcode: uint8): int =
+  # `daa` 是在兩個 BCD `add`/`sub` 之後對結果進行 normalize 用
+  debug "DAA"
+  if cpu.f{N}:
+    cpu.r(A) = (cpu.r(A) + (
+      if cpu.f{C} and cpu.f{H}:
+        0x9a
+      elif cpu.f{C}:
+        0xa0
+      elif cpu.f{H}:
+        cpu.f -= C
+        0xfa
+      else:
+        cpu.f -= C
+        0
+    )) and 0xff
+  else:
+    let ln = cpu.r(A) and 0xf
+    let lr = ln + (if cpu.f{H} or ln > 9: 0x6 else: 0)
+    var hr = uint16(cpu.r(A) and 0xf0) + (lr and 0b10000)
+    if hr > 0x90 or cpu.f{C}:
+      hr += 0x60
+    let r = hr or (lr and 0xf)
+    cpu.f{C} = (r shr 8) != 0
+    cpu.r(A) = byte(r and 0xff)
+  cpu.f -= H
+  cpu.f{Z} = cpu.r(A) == 0
+
 proc opAdd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
   let adc = (opcode and 0xf) > 7
   let s = S.value(cpu)
@@ -998,7 +1036,7 @@ const opcodes = [
   (t: 4, entry: opInc[Register8.H, 1]),
   (t: 4, entry: opInc[Register8.H, 0xff]),
   (t: 8, entry: opLd[Register8.H, Immediate8Tag]),
-  (t: 0, entry: opUnimpl),
+  (t: 4, entry: opDaa),
   (t: 8, entry: opJr),
   (t: 8, entry: opAdd16[HL, HL]),
   (t: 8, entry: opLd[A, Reg16Inc(HL).indir]),
