@@ -59,9 +59,6 @@ proc step*(self: Dmg) =
   while pollEvent(addr ev) != 0:
     if ev.kind == QUIT:
       self.stop()
-    elif ev.kind == WINDOWEVENT and ev.window.event == WINDOWEVENT_CLOSE:
-      let ev = Event(kind: QUIT)
-      pushEvent(unsafeAddr ev).errQuit
 
   let ticks = self.cpu.step()
   self.joypad.process()
