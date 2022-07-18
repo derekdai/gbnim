@@ -57,15 +57,11 @@ proc newIoMemory*(cpu: Sm83): IoMemory =
 
   result.setHandler(IoBootRom, loadBootRomState, storeBootRomState)
 
-method load*(self: IoMemory; a: Address; dest: pointer;
-    length: uint16) {.locks: "unknown".} =
-  assert length == 1
-  cast[ptr byte](dest)[] = self.entries[a and 0x7f].load(self.cpu, a)
+method load*(self: IoMemory; a: Address): byte {.locks: "unknown".} =
+  self.entries[a and 0x7f].load(self.cpu, a)
 
-method store*(self: var IoMemory; a: Address; src: pointer;
-    length: uint16) {.locks: "unknown".} =
-  assert length == 1
-  self.entries[a and 0x7f].store(self.cpu, a, cast[ptr byte](src)[])
+method store*(self: var IoMemory; a: Address; value: byte) {.locks: "unknown".} =
+  self.entries[a and 0x7f].store(self.cpu, a, value)
 
 func setHandler*(self: IoMemory; a: Address; load: IoLoad; store: IoStore) =
   assert a in IOREGS

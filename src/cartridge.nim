@@ -393,13 +393,13 @@ proc newRomBank(cart: Cartridge; region: MemoryRegion; data: Bytes): RomBank =
 func switch*(self: RomBank; data: Bytes) =
   self.data = data
 
-method load*(self: RomBank; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
-  copyMem(dest, unsafeAddr self.data[a - self.region.a], length)
+method load*(self: RomBank; a: Address): byte {.locks: "unknown".} =
+  self.data[a - self.region.a]
 
 proc requestMbc(self: Cartridge; a: Address; v: byte)
 
-method store*(self: var RomBank; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
-  self.cart.requestMbc(a, cast[ptr byte](src)[])
+method store*(self: var RomBank; a: Address; value: byte) {.locks: "unknown".} =
+  self.cart.requestMbc(a, value)
 
 func header*(self: Cartridge): lent Header {.inline.} = 
   cast[ptr Header](unsafeAddr self.data[0x100])[]

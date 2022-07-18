@@ -80,11 +80,11 @@ const
   NZ = InvFlag(Z.ord)
   NC = InvFlag(Flag.C.ord)
 
-method load*(self: Sm83; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
-  cast[ptr byte](dest)[] = cast[byte](self.ie)
+method load*(self: Sm83; a: Address): byte {.locks: "unknown".} =
+  cast[byte](self.ie)
 
-method store*(self: var Sm83; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
-  cast[ptr byte](addr self.ie)[] = cast[ptr byte](src)[]
+method store*(self: var Sm83; a: Address; value: byte) {.locks: "unknown".} =
+  self.ie = cast[InterruptFlags](value)
   debug &"IE: {self.ie}"
 
 func loadIf*(self: Sm83; a: Address): byte =

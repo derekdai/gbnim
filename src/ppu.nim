@@ -204,13 +204,11 @@ proc newVideoRam(ppu: Ppu): VideoRam =
   result = VideoRam(ppu: ppu)
   Memory.init(result, VRAM)
 
-method load(self: VideoRam; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
-  assert length == 1
-  cast[ptr byte](dest)[] = self.ppu.vram[a - self.region.a]
+method load(self: VideoRam; a: Address): byte {.locks: "unknown".} =
+  self.ppu.vram[a - self.region.a]
 
-method store(self: var VideoRam; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
-  assert length == 1
-  self.ppu.vram[a - self.region.a] = cast[ptr byte](src)[]
+method store(self: var VideoRam; a: Address; value: byte) {.locks: "unknown".} =
+  self.ppu.vram[a - self.region.a] = value
   self.ppu.flags.incl VRamDirty
 
 type
@@ -221,12 +219,11 @@ proc newObjAttrTable(ppu: Ppu): ObjAttrTable =
   result = ObjAttrTable(ppu: ppu)
   Memory.init(result, OAM)
 
-method load*(self: ObjAttrTable; a: Address; dest: pointer; length: uint16) {.locks: "unknown".} =
+method load*(self: ObjAttrTable; a: Address): byte {.locks: "unknown".} =
   warn &"unhandled load from 0x{a:04x}"
 
-method store*(self: var ObjAttrTable; a: Address; src: pointer; length: uint16) {.locks: "unknown".} =
-  assert length == 1
-  self.ppu.oam[a - OAM.a] = cast[ptr byte](src)[]
+method store*(self: var ObjAttrTable; a: Address; value: byte) {.locks: "unknown".} =
+  self.ppu.oam[a - OAM.a] = value
 
 proc newPpu*(mctrl: MemoryCtrl; iom: IoMemory): Ppu =
   var ppu = Ppu(flags: {Dirty, VRamDirty})

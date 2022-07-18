@@ -31,12 +31,10 @@ func init*(T: typedesc[Memory]; self: T; region: MemoryRegion) =
 func `region`*(self: Memory): lent MemoryRegion = self.region
 func `region=`*(self: var Memory; region: MemoryRegion) = self.region = region
 
-method load*(self: Memory; a: Address; dest: pointer; length: uint16) {.base,
-    locks: "unknown".} =
+method load*(self: Memory; a: Address): byte {.base, locks: "unknown".} =
   assert false
 
-method store*(self: var Memory; a: Address; src: pointer;
-    length: uint16) {.base, locks: "unknown".} =
+method store*(self: var Memory; a: Address; value: byte) {.base, locks: "unknown".} =
   assert false
 
 type
@@ -84,7 +82,8 @@ when not declared(getBacktrace):
 proc load*[T: SomeInteger](self: MemoryCtrl; a: Address): T {.inline.} =
   var mem = self.lookup(a)
   if mem != nil:
-    mem.load(a, addr result, sizeof(result).uint16)
+    for n in 0u16..<sizeof(T):
+      result = result or (mem.load(a + n).T shl (n shl 3))
     debug &"| {result.hex} < {a.hex}"
   else:
     warn &"unhandled load from 0x{a:04x}"
@@ -92,7 +91,8 @@ proc load*[T: SomeInteger](self: MemoryCtrl; a: Address): T {.inline.} =
 proc store*[T: SomeInteger](self: var MemoryCtrl; a: Address; v: T) {.inline.} =
   var mem = self.lookup(a)
   if mem != nil:
-    mem.store(a, unsafeAddr v, sizeof(v).uint16)
+    for n in 0u16..<sizeof(T):
+      mem.store(a + n, byte((v shr (n shl 3)) and 0xff))
     debug &"| {v.hex} > {a.hex}"
   else:
     warn &"unhandled store to 0x{a:04x}"
@@ -116,19 +116,16 @@ proc newEchoRam*(target: Address; mctrl: MemoryCtrl): EchoRam =
   result.target = target
   result.mctrl = mctrl
 
-method load*(self: EchoRam; a: Address; dest: pointer;
-    length: uint16) {.locks: "unknown".} =
+method load*(self: EchoRam; a: Address): byte {.locks: "unknown".} =
   let offset = a - self.region.a
   let mem = self.mctrl.lookup(self.target + offset)
   if mem != nil:
-    mem.load(offset, dest, length)
+    result = mem.load(offset)
   else:
     warn &"address 0x{a:04x} is not mapped"
 
-method store*(self: var EchoRam; a: Address; src: pointer;
-    length: uint16) {.locks: "unknown".} =
-  assert length == 1
-  self.mctrl.store(self.target + (a - self.region.a), cast[ptr byte](src)[])
+method store*(self: var EchoRam; a: Address; value: byte) {.locks: "unknown".} =
+  self.mctrl.store(self.target + (a - self.region.a), value)
 
 type
   Rom* = ref object of Memory
@@ -144,12 +141,10 @@ proc newRom*(region: MemoryRegion; data: sink seq[byte]): Rom =
 
 func data*(self: Rom): lent seq[byte] = self.data
 
-method load*(self: Rom; a: Address; dest: pointer;
-    length: uint16) {.locks: "unknown".} =
-  copyMem(dest, addr self.data[a - self.region.a], length)
+method load*(self: Rom; a: Address): byte {.locks: "unknown".} =
+  self.data[a - self.region.a]
 
-method store*(self: var Rom; a: Address; src: pointer;
-    length: uint16) {.locks: "unknown".} =
+method store*(self: var Rom; a: Address; value: byte) {.locks: "unknown".} =
   warn &"unhandled store to 0x{a:04x}"
 
 type
@@ -160,13 +155,10 @@ proc newNilRom*(region: MemoryRegion; value: byte): NilRom =
   result = NilRom(value: value)
   Memory.init(result, region)
 
-method load*(self: NilRom; a: Address; dest: pointer;
-    length: uint16) {.locks: "unknown".} =
-  assert length == 1
-  cast[ptr byte](dest)[] = self.value
+method load*(self: NilRom; a: Address): byte {.locks: "unknown".} =
+  self.value
 
-method store*(self: var NilRom; a: Address; src: pointer;
-    length: uint16) {.locks: "unknown".} =
+method store*(self: var NilRom; a: Address; value: byte) {.locks: "unknown".} =
   warn &"unhandled store to 0x{a:04x}"
 
 type
@@ -178,11 +170,9 @@ proc newRam*(region: MemoryRegion): Ram =
   Memory.init(result, region)
   result.buf = newSeq[byte](region.b - region.a + 1)
 
-method load*(self: Ram; a: Address; dest: pointer;
-    length: uint16) {.locks: "unknown".} =
-  copyMem(dest, addr self.buf[a - self.region.a], length)
+method load*(self: Ram; a: Address): byte {.locks: "unknown".} =
+  self.buf[a - self.region.a]
 
-method store*(self: var Ram; a: Address; src: pointer;
-    length: uint16) {.locks: "unknown".} =
-  copyMem(addr self.buf[a - self.region.a], src, length)
+method store*(self: var Ram; a: Address; value: byte) {.locks: "unknown".} =
+  self.buf[a - self.region.a] = value
 
