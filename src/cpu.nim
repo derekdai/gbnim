@@ -87,8 +87,8 @@ method store*(self: var Sm83; a: Address; src: pointer; length: uint16) {.locks:
   cast[ptr byte](addr self.ie)[] = cast[ptr byte](src)[]
   debug &"IE: {self.ie}"
 
-func loadIf*(self: Sm83; a: Address; d: var byte) =
-  d = cast[byte](self.if)
+func loadIf*(self: Sm83; a: Address): byte =
+  cast[byte](self.if)
 
 proc storeIf*(self: Sm83; a: Address; s: byte) =
   self.if = cast[InterruptFlags](s)

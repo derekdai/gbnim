@@ -165,23 +165,23 @@ func bgColor(self: Ppu; i: PaletteIndex): Shade {.inline.} =
   of 2: self.bgp.color2
   of 3: self.bgp.color3
 
-proc loadBgp(self: Ppu; d: var byte) = d = cast[byte](self.bgp)
+proc loadBgp(self: Ppu): byte = cast[byte](self.bgp)
 proc storeBgp(self: Ppu; s: byte) =
   self.bgp = cast[BgPalette](s)
   debug &"BGP={self.bgp}"
 
-proc loadScy(self: Ppu; d: var byte) = d = self.scx
+proc loadScy(self: Ppu): byte = self.scx
 proc storeScy(self: Ppu; s: byte) =
   self.scy = s
   debug &"SCY: {self.scy}"
 
-proc loadScx(self: Ppu; d: var byte) = d = self.scy
+proc loadScx(self: Ppu): byte = self.scy
 proc storeScx(self: Ppu; s: byte) =
   self.scx = s
   debug &"SCX: {self.scx}"
 
 converter toByte(v: Lcdc): byte {.inline.} = cast[byte](v)
-proc loadLcdc(self: Ppu; d: var byte) = d = self.lcdc
+proc loadLcdc(self: Ppu): byte = self.lcdc
 proc storeLcdc(self: Ppu; s: byte) =
   if s != self.lcdc:
     self.flags.incl Dirty
@@ -189,9 +189,9 @@ proc storeLcdc(self: Ppu; s: byte) =
   self.lcdc = cast[Lcdc](s)
   debug &"LCDC: {self.lcdc}"
 
-proc loadLy(self: Ppu; d: var byte) =
+proc loadLy(self: Ppu): byte =
   debug &"LY: {self.ly}"
-  d = self.ly
+  self.ly
 proc storeLy(self: Ppu; s: byte) =
   ## Writing will reset the counter?
   discard
@@ -232,23 +232,23 @@ proc newPpu*(mctrl: MemoryCtrl; iom: IoMemory): Ppu =
   var ppu = Ppu(flags: {Dirty, VRamDirty})
 
   iom.setHandler IoBgp,
-    proc(cpu: Sm83; a: Address; d: var byte) = loadBgp(ppu, d),
+    proc(cpu: Sm83; a: Address): byte = loadBgp(ppu),
     proc(cpu: Sm83; a: Address; s: byte) = storeBgp(ppu, s)
 
   iom.setHandler IoLcdc,
-    proc(cpu: Sm83; a: Address; d: var byte) = loadLcdc(ppu, d),
+    proc(cpu: Sm83; a: Address): byte = loadLcdc(ppu),
     proc(cpu: Sm83; a: Address; s: byte) = storeLcdc(ppu, s)
 
   iom.setHandler IoScy,
-    proc(cpu: Sm83; a: Address; d: var byte) = loadScy(ppu, d),
+    proc(cpu: Sm83; a: Address): byte = loadScy(ppu),
     proc(cpu: Sm83; a: Address; s: byte) = storeScy(ppu, s)
 
   iom.setHandler IoScx,
-    proc(cpu: Sm83; a: Address; d: var byte) = loadScx(ppu, d),
+    proc(cpu: Sm83; a: Address): byte = loadScx(ppu),
     proc(cpu: Sm83; a: Address; s: byte) = storeScx(ppu, s)
 
   iom.setHandler IoLy,
-    proc(cpu: Sm83; a: Address; d: var byte) = loadLy(ppu, d),
+    proc(cpu: Sm83; a: Address): byte = loadLy(ppu),
     proc(cpu: Sm83; a: Address; s: byte) = storeLy(ppu, s)
 
   let vram = newVideoRam(ppu)

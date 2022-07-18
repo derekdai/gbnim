@@ -17,17 +17,17 @@ type
     tac: TimerControl
     targetTick: Tick
 
-proc loadDiv(self: Timer; cpu: Sm83; d: var byte) = d = self.divi
+proc loadDiv(self: Timer; cpu: Sm83): byte = self.divi
 proc storeDiv(self: Timer; cpu: Sm83; s: byte) =
   debug &"DIV: {s:02x}"
   self.divi = s
 
-proc loadTima(self: Timer; cpu: Sm83; d: var byte) = d = self.tima
+proc loadTima(self: Timer; cpu: Sm83): byte = self.tima
 proc storeTima(self: Timer; cpu: Sm83; s: byte) =
   debug &"TIMA: {s:02x}"
   self.tima = s
 
-proc loadTma(self: Timer; cpu: Sm83; d: var byte) = d = self.tma
+proc loadTma(self: Timer; cpu: Sm83): byte = self.tma
 proc storeTma(self: Timer; cpu: Sm83; s: byte) =
   debug &"TMA: {s:02x}"
   self.tma = s
@@ -37,7 +37,7 @@ func started(self: Timer): bool {.inline.} = self.tac.started
 func updateTargetTick(self: Timer; cpu: Sm83) =
   discard
 
-proc loadTac(self: Timer; cpu: Sm83; d: var byte) = d = cast[byte](self.tac)
+proc loadTac(self: Timer; cpu: Sm83): byte = cast[byte](self.tac)
 proc storeTac(self: Timer; cpu: Sm83; s: byte) =
   let s = cast[TimerControl](s)
   debug &"TAC: {s}"

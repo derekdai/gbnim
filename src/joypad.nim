@@ -21,9 +21,9 @@ type
     joyp: JoypadStatus
     kbState: ptr array[NUM_SCANCODES.int, byte]
 
-proc loadJoyp(self: Joypad; cpu: Sm83; d: var byte) =
+proc loadJoyp(self: Joypad; cpu: Sm83): byte =
   debug &"JOYP: < {self.joyp}"
-  d = cast[byte](self.joyp)
+  cast[byte](self.joyp)
 
 proc storeJoyp(self: Joypad; cpu: Sm83; s: byte) =
   self.joyp = cast[JoypadStatus](s)

@@ -20,7 +20,7 @@ const
   IoBootRom* = Address(0xff50)
 
 type
-  IoLoad* = proc(cpu: Sm83; a: Address; d: var byte)
+  IoLoad* = proc(cpu: Sm83; a: Address): byte
   IoStore* = proc(cpu: Sm83; a: Address; s: byte)
   IoMemEntry = tuple[load: IoLoad; store: IoStore]
   IoMemory* = ref object of Memory
@@ -33,7 +33,7 @@ proc ioLoadUnimpl(a: Address) =
 proc ioStoreUnimpl(a: Address) =
   debug &"I/O store not implemented for 0x{a:04x}"
 
-proc loadBootRomState(cpu: Sm83; a: Address; d: var byte) = discard
+proc loadBootRomState(cpu: Sm83; a: Address): byte = discard
 
 proc storeBootRomState(cpu: Sm83; a: Address; s: byte) =
   if s == 0:
@@ -49,7 +49,7 @@ proc newIoMemory*(cpu: Sm83): IoMemory =
   result.cpu = cpu
 
   let unimpl: IoMemEntry = (
-    IoLoad(proc(cpu: Sm83; a: Address; d: var byte) = ioLoadUnimpl(a)),
+    IoLoad(proc(cpu: Sm83; a: Address): byte = ioLoadUnimpl(a)),
     IoStore(proc(cpu: Sm83; a: Address; s: byte) = ioStoreUnimpl(a))
   )
   for e in result.entries.mitems:
@@ -60,7 +60,7 @@ proc newIoMemory*(cpu: Sm83): IoMemory =
 method load*(self: IoMemory; a: Address; dest: pointer;
     length: uint16) {.locks: "unknown".} =
   assert length == 1
-  self.entries[a and 0x7f].load(self.cpu, a, cast[var byte](dest))
+  cast[ptr byte](dest)[] = self.entries[a and 0x7f].load(self.cpu, a)
 
 method store*(self: var IoMemory; a: Address; src: pointer;
     length: uint16) {.locks: "unknown".} =
@@ -72,8 +72,8 @@ func setHandler*(self: IoMemory; a: Address; load: IoLoad; store: IoStore) =
   self.entries[a and 0x7f] = (load, store)
 
 proc forwardLoad*[T](o: T; p: proc): IoLoad =
-  result = proc(cpu: Sm83; a: Address; d: var byte) =
-    p(o, cpu, d)
+  result = proc(cpu: Sm83; a: Address): byte =
+    p(o, cpu)
 
 proc forwardStore*[T](o: T; p: proc): IoStore =
   result = proc(cpu: Sm83; a: Address; d: byte) =
