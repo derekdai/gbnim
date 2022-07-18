@@ -1,5 +1,5 @@
-import dmg, cpu, memory, cartridge, utils, ppu, io, types
-import std/[logging, strformat, strutils, tables]
+import dmg, utils
+import std/[logging, tables, os]
 import sdl2_nim/sdl
 
 addHandler(newConsoleLogger(fmtStr = "[$time] $levelid "))
@@ -16,7 +16,8 @@ proc main =
   defer: sdl.quit()
 
   emu = newDmg()
-  emu.loadCart("cpu_instrs.gb")
+  if paramCount() > 0:
+    emu.loadCart(commandLineParams()[0])
   emu.run()
 
   info "bye"
