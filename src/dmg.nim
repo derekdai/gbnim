@@ -1,5 +1,5 @@
 import std/[logging, strformat, options]
-import cpu, timer, memory, cartridge, ppu, io, types, utils
+import cpu, timer, memory, cartridge, ppu, joypad, io, types, utils
 import sdl2_nim/sdl
 
 const
@@ -15,6 +15,7 @@ type
     cpu: Sm83
     ppu: Ppu
     timer: Timer
+    joypad: Joypad
 
 proc newDmg*(bootRomPath = none[string]()): Dmg =
   var cpu = newSm83(CpuFreq)
@@ -34,12 +35,13 @@ proc newDmg*(bootRomPath = none[string]()): Dmg =
   cpu.memCtrl = memCtrl
 
   let ppu = newPpu(memCtrl, iomem)
+  let joypad = newJoypad(iomem)
 
   memCtrl.map(iomem)
 
   iomem.setHandler(IoIf, loadIf, storeIf)
 
-  result = Dmg(cpu: cpu, ppu: ppu, timer: newTimer(iomem), running: true)
+  result = Dmg(cpu: cpu, ppu: ppu, timer: newTimer(iomem), joypad: joypad, running: true)
 
 proc loadCart*(self: Dmg; path: string) =
   self.cart = newCartridge(path)
@@ -62,6 +64,7 @@ proc step*(self: Dmg) =
       pushEvent(unsafeAddr ev).errQuit
 
   let ticks = self.cpu.step()
+  self.joypad.process()
   self.ppu.process(self.cpu, ticks)
   self.timer.process(self.cpu, ticks)
 

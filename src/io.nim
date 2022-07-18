@@ -2,6 +2,7 @@ import std/[logging, strformat]
 import cpu, memory, types
 
 const
+  IoJoyp* = Address(0xff00)
   ## Timer and divider registers
   IoDiv* = Address(0xff04)
   IoTima* = Address(0xff05)
