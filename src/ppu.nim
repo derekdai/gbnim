@@ -18,6 +18,20 @@ const
     ColorBlack,
   ]
 
+func r(self: tuple[x, y, w, h: int]): int {.inline.} = self.x + self.w
+func b(self: tuple[x, y, w, h: int]): int {.inline.} = self.y + self.h
+
+const
+  SepWidth = 5
+  DispRes = (w: 160, h: 144)
+  MainView = (x: 0, y: 0, w: DispRes.w * 2, h: DispRes.h * 2)
+  TilesView = (x: MainView.r + SepWidth, y: 0, w: 256, h: 48)
+  BgTileMapView = (x: TilesView.x, y: TilesView.b + SepWidth, w: TilesView.w, h: 256)
+  WinTileMapView = (x: TilesView.x, y: BgTileMapView.b + SepWidth, w: TilesView.w, h: BgTileMapView.h)
+  WinDimn = (w: WinTileMapView.r, h: WinTileMapView.b)
+
+echo &"win: {WinDimn}"
+
 type
   PaletteIndex = 0..3
   Point = tuple
@@ -96,11 +110,6 @@ func cols(_: typedesc[TileMap]): int {.inline.} = 32
 func pixel(self: ptr Tile; p: Point): PaletteIndex {.inline.} =
   self.bit1(p) or (self.bit2(p) shl 1)
 
-const
-  DisplayResolution = (w: 160, h: 144)
-  TileViewDimension = (w: 256, h: 48 + 256 + 256 + 2)
-  WindowDimension = (w: DisplayResolution.w + TileViewDimension.w, h: TileViewDimension.h)
-
 type
   LcdMode = enum
     lmHBlank
@@ -142,15 +151,23 @@ type
     oam: array[OAM.len, byte]
     win: sdl.Window
     rend: sdl.Renderer
-    app: sdl.Texture
+    main: sdl.Texture
     tiles: sdl.Texture
+    bgMap: sdl.Texture
+    winMap: sdl.Texture
 
 proc `=destroy`(self: var typeof(Ppu()[])) =
+  if self.bgMap != nil:
+    self.bgMap.destroyTexture()
+
+  if self.winMap != nil:
+    self.winMap.destroyTexture()
+
   if self.tiles != nil:
     self.tiles.destroyTexture()
 
-  if self.app != nil:
-    self.app.destroyTexture()
+  if self.main != nil:
+    self.main.destroyTexture()
 
   if self.rend != nil:
     self.rend.destroyRenderer()
@@ -270,22 +287,32 @@ proc newPpu*(mctrl: MemoryCtrl; iom: IoMemory): Ppu =
     "gdnim",
     sdl.WindowPosCentered,
     sdl.WindowPosCentered,
-    WindowDimension.w,
-    WindowDimension.h,
+    WinDimn.w,
+    WinDimn.h,
     0).errQuit
   ppu.rend = ppu.win.createRenderer(
     -1,
     sdl.RendererAccelerated or sdl.RendererPresentVsync).errQuit
-  ppu.app = ppu.rend.createTexture(
+  ppu.main = ppu.rend.createTexture(
     PIXELFORMAT_RGBA8888,
     TEXTUREACCESS_TARGET,
-    DisplayResolution[0],
-    DisplayResolution[1]).errQuit
+    DispRes.w,
+    DispRes.h).errQuit
   ppu.tiles = ppu.rend.createTexture(
     PIXELFORMAT_RGBA8888,
     TEXTUREACCESS_TARGET,
-    TileViewDimension.w,
-    TileViewDimension.h).errQuit
+    TilesView.w,
+    TilesView.h).errQuit
+  ppu.bgMap = ppu.rend.createTexture(
+    PIXELFORMAT_RGBA8888,
+    TEXTUREACCESS_TARGET,
+    BgTileMapView.w,
+    BgTileMapView.h).errQuit
+  ppu.winMap = ppu.rend.createTexture(
+    PIXELFORMAT_RGBA8888,
+    TEXTUREACCESS_TARGET,
+    WinTileMapView.w,
+    WinTileMapView.h).errQuit
 
   ppu
 
@@ -311,17 +338,17 @@ proc drawTile(self: Ppu; tileNum: byte; topLeft: Point) =
       setRenderDrawColor(self.rend, c.r, c.g, c.b, c.a).errQuit
       self.rend.renderDrawPoint(topLeft.x + x, topLeft.y + y).errQuit
 
-proc drawTiles(self: Ppu; topLeft: Point) =
+proc drawTiles(self: Ppu) =
   for i in 0..<Tiles.len:
     let r = i shr 5         # i / 32
     let c = i and 0b11111   # i mod 32
-    let p = (topLeft[0] + (c shl 3), topLeft[1] + (r shl 3))
+    let p = (c shl 3, r shl 3)
     drawTile(self, byte(i), p)
 
-proc drawTileMap(self: Ppu; tileMap: TileMap; topLeft: Point) =
+proc drawTileMap(self: Ppu; tileMap: TileMap) =
   for r in 0..<TileMap.rows:
     for c in 0..<TileMap.cols:
-      let p = (topLeft[0] + (c shl 3), topLeft[1] + (r shl 3))
+      let p = (c shl 3, r shl 3)
       drawTile(self, tileMap[r][c], p)
 
 proc updateTileMapView(self: Ppu) =
@@ -329,12 +356,19 @@ proc updateTileMapView(self: Ppu) =
     return
 
   self.rend.setRenderTarget(self.tiles).errQuit
-  self.drawTiles((0, 0))
-  self.drawTileMap(self.bgTileMap, (0, 49))
-  self.drawTileMap(self.winTileMap, (0, 306))
+  self.drawTiles()
+  self.rend.setRenderTarget(self.bgMap).errQuit
+  self.drawTileMap(self.bgTileMap)
+  self.rend.setRenderTarget(self.winMap).errQuit
+  self.drawTileMap(self.winTileMap)
+
   self.rend.setRenderTarget(nil).errQuit
-  let pos = sdl.Rect(x: DisplayResolution.w, y: 0, w: TileViewDimension.w, h: TileViewDimension.h)
+  var pos = sdl.Rect(x: TilesView.x, y: TilesView.y, w: TilesView.w, h: TilesView.h)
   self.rend.renderCopy(self.tiles, nil, unsafeAddr pos).errQuit
+  pos = sdl.Rect(x: BgTileMapView.x, y: BgTileMapView.y, w: BgTileMapView.w, h: BgTileMapView.h)
+  self.rend.renderCopy(self.bgMap, nil, unsafeAddr pos).errQuit
+  pos = sdl.Rect(x: WinTileMapView.x, y: WinTileMapView.y, w: WinTileMapView.w, h: WinTileMapView.h)
+  self.rend.renderCopy(self.winMap, nil, unsafeAddr pos).errQuit
   self.rend.renderPresent()
 
 func lcdEnabled(self: Ppu): bool {.inline.} = self.lcdc.lcdEnable
