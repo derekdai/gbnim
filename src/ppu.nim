@@ -110,10 +110,10 @@ type
   LcdcStatus = object
     mode {.bitsize: 2.}: LcdMode
     concidence {.bitsize: 1.}: bool
-    mode0Intr {.bitsize: 1.}: bool
-    mode1Intr {.bitsize: 1.}: bool
-    mode2Intr {.bitsize: 1.}: bool
-    concidenceIntr {.bitsize: 1.}: bool
+    hblankIntr {.bitsize: 1.}: bool
+    vblankIntr {.bitsize: 1.}: bool
+    oamIntr {.bitsize: 1.}: bool
+    coincidenceIntr {.bitsize: 1.}: bool
   PpuFlag = enum
     Dirty
     VRamDirty
@@ -347,6 +347,8 @@ proc process*(self: Ppu; cpu: Sm83; ticks: Tick) =
   #  self.updateLcdView()
   #  self.flags.excl Dirty
 
+  var statIntr = false
+
   self.ticks += ticks
   case self.stat.mode
   of lmHBlank:
@@ -354,11 +356,14 @@ proc process*(self: Ppu; cpu: Sm83; ticks: Tick) =
       self.ticks -= 207
       self.ly.inc
       self.stat.concidence = self.ly == self.lyc
+      statIntr = statIntr or (self.stat.concidence and self.stat.coincidenceIntr)
       self.stat.mode =
         if self.ly == 144:
           cpu.setInterrupt(VBlank)
+          statIntr = statIntr or self.stat.vblankIntr
           lmVBlank
         else:
+          statIntr = statIntr or self.stat.oamIntr
           lmReadOam
   of lmVBlank:
     if self.ticks >= 456:
@@ -366,6 +371,7 @@ proc process*(self: Ppu; cpu: Sm83; ticks: Tick) =
       self.ly.inc
       if self.ly >= 153:
         self.stat.mode = lmReadOam
+        statIntr = statIntr or self.stat.oamIntr
         cpu.clearInterrupt(VBlank)
   of lmReadOam:
     if self.ticks >= 83:
@@ -374,4 +380,10 @@ proc process*(self: Ppu; cpu: Sm83; ticks: Tick) =
   of lmTrans:
     if self.ticks >= 229:
       self.stat.mode = lmHBlank
+      statIntr = statIntr or self.stat.hblankIntr
       self.ticks -= 229
+
+  if statIntr:
+    cpu.setInterrupt(LcdStat)
+  else:
+    cpu.clearInterrupt(LcdStat)
