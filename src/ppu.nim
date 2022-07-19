@@ -1,5 +1,5 @@
 import std/[logging, strformat]
-import cpu, memory, io, types, utils
+import cpu, memory, io, types, utils, setsugar
 import sdl2_nim/sdl
 
 type
@@ -18,19 +18,17 @@ const
     ColorBlack,
   ]
 
-func r(self: tuple[x, y, w, h: int]): int {.inline.} = self.x + self.w
-func b(self: tuple[x, y, w, h: int]): int {.inline.} = self.y + self.h
+func r(self: Rect): int {.inline.} = self.x + self.w
+func b(self: Rect): int {.inline.} = self.y + self.h
 
 const
   SepWidth = 5
-  DispRes = (w: 160, h: 144)
-  MainView = (x: 0, y: 0, w: DispRes.w * 2, h: DispRes.h * 2)
-  TilesView = (x: MainView.r + SepWidth, y: 0, w: 256, h: 48)
-  BgTileMapView = (x: TilesView.x, y: TilesView.b + SepWidth, w: TilesView.w, h: 256)
-  WinTileMapView = (x: TilesView.x, y: BgTileMapView.b + SepWidth, w: TilesView.w, h: BgTileMapView.h)
-  WinDimn = (w: WinTileMapView.r, h: WinTileMapView.b)
-
-echo &"win: {WinDimn}"
+  DispRes = Rect(x: 0, y: 0, w: 160, h: 144)
+  MainView = Rect(x: 0, y: 0, w: DispRes.w * 4, h: DispRes.h * 4)
+  TilesView = Rect(x: MainView.r + SepWidth, y: 0, w: 256, h: 48)
+  BgTileMapView = Rect(x: TilesView.x, y: TilesView.b + SepWidth, w: TilesView.w, h: 256)
+  WinTileMapView = Rect(x: TilesView.x, y: BgTileMapView.b + SepWidth, w: TilesView.w, h: BgTileMapView.h)
+  WinDimn = (w: WinTileMapView.r, h: max(MainView.b, WinTileMapView.b))
 
 type
   PaletteIndex = 0..3
@@ -201,8 +199,8 @@ converter toByte(v: Lcdc): byte {.inline.} = cast[byte](v)
 proc loadLcdc(self: Ppu): byte = self.lcdc
 proc storeLcdc(self: Ppu; s: byte) =
   if s != self.lcdc:
-    self.flags.incl Dirty
-    self.flags.incl VramDirty
+    self.flags += Dirty
+    self.flags += VramDirty
   self.lcdc = cast[Lcdc](s)
   debug &"LCDC: {self.lcdc}"
 
@@ -221,8 +219,10 @@ proc newVideoRam(ppu: Ppu): VideoRam =
   result = VideoRam(ppu: ppu)
   Memory.init(result, VRAM)
 
+func lcdEnabled(self: Ppu): bool {.inline.} = self.lcdc.lcdEnable
+
 proc assertAccess(self: VideoRam) =
-  if self.ppu.stat.mode in {lmTrans}:
+  if self.ppu.lcdEnabled and self.ppu.stat.mode in {lmTrans}:
     info &"VRAM access in LCD mode {self.ppu.stat.mode.ord}"
 
 method load(self: VideoRam; a: Address): byte {.locks: "unknown".} =
@@ -243,7 +243,7 @@ proc newObjAttrTable(ppu: Ppu): ObjAttrTable =
   Memory.init(result, OAM)
 
 proc assertAccess(self: ObjAttrTable) =
-  if self.ppu.stat.mode notin {lmHBlank, lmVBlank}:
+  if self.ppu.lcdEnabled and self.ppu.stat.mode notin {lmHBlank, lmVBlank}:
     info &"OAM access in LCD mode {self.ppu.stat.mode.ord}"
 
 method load*(self: ObjAttrTable; a: Address): byte {.locks: "unknown".} =
@@ -335,7 +335,7 @@ proc drawTile(self: Ppu; tileNum: byte; topLeft: Point) =
     for x in 0..<Tile.width:
       let i = tile.pixel((x, y))
       let c = self.bgColor(i).toRgba
-      setRenderDrawColor(self.rend, c.r, c.g, c.b, c.a).errQuit
+      self.rend.setRenderDrawColor(c.r, c.g, c.b, c.a).errQuit
       self.rend.renderDrawPoint(topLeft.x + x, topLeft.y + y).errQuit
 
 proc drawTiles(self: Ppu) =
@@ -343,13 +343,13 @@ proc drawTiles(self: Ppu) =
     let r = i shr 5         # i / 32
     let c = i and 0b11111   # i mod 32
     let p = (c shl 3, r shl 3)
-    drawTile(self, byte(i), p)
+    self.drawTile(byte(i), p)
 
 proc drawTileMap(self: Ppu; tileMap: TileMap) =
   for r in 0..<TileMap.rows:
     for c in 0..<TileMap.cols:
       let p = (c shl 3, r shl 3)
-      drawTile(self, tileMap[r][c], p)
+      self.drawTile(tileMap[r][c], p)
 
 proc updateTileMapView(self: Ppu) =
   if not self.lcdc.lcdEnable:
@@ -362,37 +362,16 @@ proc updateTileMapView(self: Ppu) =
   self.rend.setRenderTarget(self.winMap).errQuit
   self.drawTileMap(self.winTileMap)
 
-  self.rend.setRenderTarget(nil).errQuit
-  var pos = sdl.Rect(x: TilesView.x, y: TilesView.y, w: TilesView.w, h: TilesView.h)
-  self.rend.renderCopy(self.tiles, nil, unsafeAddr pos).errQuit
-  pos = sdl.Rect(x: BgTileMapView.x, y: BgTileMapView.y, w: BgTileMapView.w, h: BgTileMapView.h)
-  self.rend.renderCopy(self.bgMap, nil, unsafeAddr pos).errQuit
-  pos = sdl.Rect(x: WinTileMapView.x, y: WinTileMapView.y, w: WinTileMapView.w, h: WinTileMapView.h)
-  self.rend.renderCopy(self.winMap, nil, unsafeAddr pos).errQuit
-  self.rend.renderPresent()
-
-func lcdEnabled(self: Ppu): bool {.inline.} = self.lcdc.lcdEnable
-
-proc updateLcdView(self: Ppu) =
+proc updateMainView(self: Ppu) =
+  self.rend.setRenderTarget(self.main).errQuit
   if not self.lcdEnabled:
     self.rend.setRenderDrawColor(ColorPowerOff.r, ColorPowerOff.g,
         ColorPowerOff.b, 0x00).errQuit
-    self.rend.renderClear().errQuit
   else:
     self.rend.setRenderDrawColor(ColorWhite.r, ColorWhite.g, ColorWhite.b, 0x00).errQuit
-    self.rend.renderClear().errQuit
-
-  self.rend.renderPresent()
+  self.rend.renderFillRect(unsafeAddr DispRes).errQuit
 
 proc process*(self: Ppu; cpu: Sm83; ticks: Tick) =
-  if VRamDirty in self.flags:
-    self.updateTileMapView()
-    self.flags.excl VRamDirty
-
-  #if Dirty in self.flags:
-  #  self.updateLcdView()
-  #  self.flags.excl Dirty
-
   var statIntr = false
 
   self.ticks += ticks
@@ -407,6 +386,17 @@ proc process*(self: Ppu; cpu: Sm83; ticks: Tick) =
         if self.ly == 144:
           cpu.setInterrupt(VBlank)
           statIntr = statIntr or self.stat.vblankIntr
+
+          self.updateMainView()
+          self.updateTileMapView()
+
+          self.rend.setRenderTarget(nil).errQuit
+          self.rend.renderCopy(self.main, nil, unsafeAddr MainView).errQuit
+          self.rend.renderCopy(self.tiles, nil, unsafeAddr TilesView).errQuit
+          self.rend.renderCopy(self.bgMap, nil, unsafeAddr BgTileMapView).errQuit
+          self.rend.renderCopy(self.winMap, nil, unsafeAddr WinTileMapView).errQuit
+          self.rend.renderPresent()
+
           lmVBlank
         else:
           statIntr = statIntr or self.stat.oamIntr
