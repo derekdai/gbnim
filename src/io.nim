@@ -12,11 +12,16 @@ const
   IoIf* = Address(0xff0f)
   ## LCD control registers
   IoLcdc* = Address(0xff40)
+  IoStat* = Address(0xff41)
   IoScy* = Address(0xff42)
   IoScx* = Address(0xff43)
+  IoWy* = Address(0xff4a)
+  IoWx* = Address(0xff4b)
   IoLy* = Address(0xff44)
   IoLyc* = Address(0xff45)
   IoBgp* = Address(0xff47)
+  IoObp0* = Address(0xff48)
+  IoObp1* = Address(0xff49)
   IoBootRom* = Address(0xff50)
 
 type
@@ -28,10 +33,10 @@ type
     entries: array[IOREGS.len, IoMemEntry]
 
 proc ioLoadUnimpl(a: Address) =
-  debug &"I/O load not implemented for 0x{a:04x}"
+  error &"I/O load not implemented for 0x{a:04x}"
 
 proc ioStoreUnimpl(a: Address) =
-  debug &"I/O store not implemented for 0x{a:04x}"
+  error &"I/O store not implemented for 0x{a:04x}"
 
 proc loadBootRomState(cpu: Sm83; a: Address): byte = discard
 

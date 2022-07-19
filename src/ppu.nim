@@ -142,7 +142,8 @@ type
     flags: PpuFlags
     ticks: Tick
     scx, scy: byte
-    bgp: BgPalette
+    wx, wy: byte
+    bgp, obp0, obp1: BgPalette
     lcdc: Lcdc
     ly, lyc: byte
     stat: LcdcStatus
@@ -184,7 +185,17 @@ func bgColor(self: Ppu; i: PaletteIndex): Shade {.inline.} =
 proc loadBgp(self: Ppu): byte = cast[byte](self.bgp)
 proc storeBgp(self: Ppu; s: byte) =
   self.bgp = cast[BgPalette](s)
-  info &"BGP={self.bgp}"
+  info &"BGP: {self.bgp}"
+
+proc loadObp0(self: Ppu): byte = cast[byte](self.obp0)
+proc storeObp0(self: Ppu; s: byte) =
+  self.obp0 = cast[BgPalette](s)
+  info &"OBP0: {self.bgp}"
+
+proc loadObp1(self: Ppu): byte = cast[byte](self.obp1)
+proc storeObp1(self: Ppu; s: byte) =
+  self.obp1 = cast[BgPalette](s)
+  info &"OBP1: {self.bgp}"
 
 proc loadScy(self: Ppu): byte = self.scx
 proc storeScy(self: Ppu; s: byte) =
@@ -196,37 +207,58 @@ proc storeScx(self: Ppu; s: byte) =
   self.scx = s
   info &"SCX: {self.scx}"
 
+proc loadWy(self: Ppu): byte = self.wy
+proc storeWy(self: Ppu; s: byte) =
+  self.wy = s
+  info &"WY: {self.wy}"
+
+proc loadWx(self: Ppu): byte = self.wx
+proc storeWx(self: Ppu; s: byte) =
+  self.wx = s
+  info &"WX: {self.wx}"
+
 func lcdEnabled(self: Ppu): bool {.inline.} = self.lcdc.lcdEnable
 
-proc lcdEnable(self: Ppu) =
+proc lcdEnable(self: Ppu; cpu: Sm83) =
   self.ly = 0
   self.stat.mode = lmReadOam
   self.rend.setRenderTarget(self.main).errQuit
   self.rend.setRenderDrawColor(ColorWhite.r, ColorWhite.g, ColorWhite.b, ColorWhite.a).errQuit
   self.rend.renderFillRect(unsafeAddr DispRes).errQuit
+  cpu.clearInterrupt(VBlank)
+  cpu.clearInterrupt(LcdStat)
+  info "LCD enabled"
 
-proc lcdDisable(self: Ppu) =
+proc lcdDisable(self: Ppu; cpu: Sm83) =
   self.rend.setRenderTarget(self.main).errQuit
   self.rend.setRenderDrawColor(ColorPowerOff.r, ColorPowerOff.g, ColorPowerOff.b, ColorPowerOff.a).errQuit
   self.rend.renderFillRect(unsafeAddr DispRes).errQuit
+  cpu.clearInterrupt(VBlank)
+  cpu.clearInterrupt(LcdStat)
+  info "LCD disabled"
 
 converter toByte(v: Lcdc): byte {.inline.} = cast[byte](v)
 proc loadLcdc(self: Ppu): byte = self.lcdc
-proc storeLcdc(self: Ppu; s: byte) =
+proc storeLcdc(self: Ppu; cpu: Sm83; s: byte) =
   if s == self.lcdc:
     return
 
   if not self.lcdc.lcdEnable and cast[Lcdc](s).lcdEnable:
-    self.lcdEnable()
+    self.lcdEnable(cpu)
   elif self.lcdc.lcdEnable and not cast[Lcdc](s).lcdEnable:
-    self.lcdDisable()
+    self.lcdDisable(cpu)
 
-  self.flags += VramDirty
+  self.flags += Refresh
   self.lcdc = cast[Lcdc](s)
   info &"LCDC: {self.lcdc}"
 
+proc loadStat(self: Ppu): byte = cast[byte](self.stat)
+proc storeStat(self: Ppu; s: byte) =
+  self.stat = cast[LcdcStatus](s)
+  info &"STAT: {self.stat}"
+
 proc loadLy(self: Ppu): byte =
-  info &"LY: {self.ly}"
+  debug &"LY: {self.ly}"
   self.ly
 proc storeLy(self: Ppu; s: byte) = discard
 
@@ -272,22 +304,34 @@ proc assertAccess(self: ObjAttrTable) =
 
 method load*(self: ObjAttrTable; a: Address): byte {.locks: "unknown".} =
   self.assertAccess()
-  warn &"unhandled load from 0x{a:04x}"
+  self.ppu.oam[a - OAM.a]
 
 method store*(self: var ObjAttrTable; a: Address; value: byte) {.locks: "unknown".} =
   self.assertAccess()
   self.ppu.oam[a - OAM.a] = value
 
-proc newPpu*(mctrl: MemoryCtrl; iom: IoMemory): Ppu =
+proc newPpu*(cpu: Sm83; mctrl: MemoryCtrl; iom: IoMemory): Ppu =
   var ppu = Ppu(flags: {Refresh, VRamDirty})
 
   iom.setHandler IoBgp,
     proc(cpu: Sm83; a: Address): byte = loadBgp(ppu),
     proc(cpu: Sm83; a: Address; s: byte) = storeBgp(ppu, s)
 
+  iom.setHandler IoObp0,
+    proc(cpu: Sm83; a: Address): byte = loadObp0(ppu),
+    proc(cpu: Sm83; a: Address; s: byte) = storeObp0(ppu, s)
+
+  iom.setHandler IoObp1,
+    proc(cpu: Sm83; a: Address): byte = loadObp1(ppu),
+    proc(cpu: Sm83; a: Address; s: byte) = storeObp1(ppu, s)
+
   iom.setHandler IoLcdc,
     proc(cpu: Sm83; a: Address): byte = loadLcdc(ppu),
-    proc(cpu: Sm83; a: Address; s: byte) = storeLcdc(ppu, s)
+    proc(cpu: Sm83; a: Address; s: byte) = storeLcdc(ppu, cpu, s)
+
+  iom.setHandler IoStat,
+    proc(cpu: Sm83; a: Address): byte = loadStat(ppu),
+    proc(cpu: Sm83; a: Address; s: byte) = storeStat(ppu, s)
 
   iom.setHandler IoScy,
     proc(cpu: Sm83; a: Address): byte = loadScy(ppu),
@@ -296,6 +340,14 @@ proc newPpu*(mctrl: MemoryCtrl; iom: IoMemory): Ppu =
   iom.setHandler IoScx,
     proc(cpu: Sm83; a: Address): byte = loadScx(ppu),
     proc(cpu: Sm83; a: Address; s: byte) = storeScx(ppu, s)
+
+  iom.setHandler IoWy,
+    proc(cpu: Sm83; a: Address): byte = loadWy(ppu),
+    proc(cpu: Sm83; a: Address; s: byte) = storeWy(ppu, s)
+
+  iom.setHandler IoWx,
+    proc(cpu: Sm83; a: Address): byte = loadWx(ppu),
+    proc(cpu: Sm83; a: Address; s: byte) = storeWx(ppu, s)
 
   iom.setHandler IoLy,
     proc(cpu: Sm83; a: Address): byte = loadLy(ppu),
@@ -342,7 +394,7 @@ proc newPpu*(mctrl: MemoryCtrl; iom: IoMemory): Ppu =
     WinTileMapView.w,
     WinTileMapView.h).errQuit
 
-  ppu.lcdDisable()
+  ppu.lcdDisable(cpu)
 
   ppu
 
@@ -390,34 +442,62 @@ proc updateTileMapView(self: Ppu) =
   self.drawTileMap(self.winTileMap)
 
 proc updateMainView(self: Ppu) =
-  self.rend.setRenderTarget(self.main).errQuit
   if not self.lcdEnabled:
-    self.rend.setRenderDrawColor(ColorPowerOff.r, ColorPowerOff.g, ColorPowerOff.b, ColorPowerOff.a).errQuit
-    self.rend.renderFillRect(unsafeAddr DispRes).errQuit
     return
 
+  self.rend.setRenderTarget(self.main).errQuit
   let srcRect = Rect(x: self.scx.int32, y: self.scy.int32, w: 160, h: 144)
   self.rend.renderCopy(self.bgMap, unsafeAddr srcRect, unsafeAddr DispRes).errQuit
 
+proc stepLy(self: Ppu; cpu: Sm83) =
+  self.ly.inc
+  if self.ly < 144:
+    self.stat.mode = lmReadOam
+  elif self.ly == 144:
+    self.stat.mode = lmVBlank
+    cpu.setInterrupt(VBlank)
+  elif self.ly >= 153:
+    self.ly = 0
+    self.stat.mode = lmReadOam
+    cpu.clearInterrupt(VBlank)
+
+proc processHBlankMode(self: Ppu; cpu: Sm83) =
+  if self.ticks < 204:
+    return
+  self.ticks -= 204 
+  self.stepLy(cpu)
+
+proc processVBlankMode(self: Ppu; cpu: Sm83) =
+  if self.ticks < 456:
+    return
+  self.ticks -= 456 
+  self.stepLy(cpu)
+
+proc processReadOamMode(self: Ppu) =
+  if self.ticks < 83:
+    return
+  self.ticks -= 83
+  self.stat.mode = lmTrans
+
 proc processTransMode(self: Ppu) =
-  discard
-
-proc processOamMode(self: Ppu) =
-  discard
-
-proc processHBlankMode(self: Ppu) =
-  discard
-
-proc processVBlankMode(self: Ppu) =
-  discard
+  if self.ticks < 169:
+    return
+  self.ticks -= 169 
+  self.stat.mode = lmHBlank
 
 proc process*(self: Ppu; cpu: Sm83; ticks: Tick) =
   if self.lcdEnabled:
     self.ticks += ticks
 
+    case self.stat.mode:
+    of lmHBlank: self.processHBlankMode(cpu)
+    of lmVBlank: self.processVBlankMode(cpu)
+    of lmReadOam: self.processReadOamMode()
+    of lmTrans: self.processTransMode()
+
   if Refresh in self.flags:
     self.updateTileMapView()
-    #self.updateMainView()
+    self.updateMainView()
 
     self.rend.setRenderTarget(nil).errQuit
     self.rend.renderCopy(self.main, nil, unsafeAddr MainView).errQuit

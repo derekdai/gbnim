@@ -34,7 +34,7 @@ proc newDmg*(bootRomPath = none[string]()): Dmg =
   memCtrl.map(newHighRam())
   cpu.memCtrl = memCtrl
 
-  let ppu = newPpu(memCtrl, iomem)
+  let ppu = newPpu(cpu, memCtrl, iomem)
   let joypad = newJoypad(iomem)
 
   memCtrl.map(iomem)
