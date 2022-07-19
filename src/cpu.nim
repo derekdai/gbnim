@@ -329,9 +329,9 @@ func `ime=`*(self: Sm83; v: bool) {.inline.} =
 
 proc opSuspend(cpu: var Sm83; opcode: uint8): int =
   if opcode == 0x10:
-    debug "STOP"
+    info "STOP"
   else:
-    debug "HALT"
+    info "HALT"
   cpu.suspend
 
 proc opNop(cpu: var Sm83; opcode: uint8): int =
@@ -494,14 +494,14 @@ proc opCall[F: static Flags; I: static bool](cpu: var Sm83; opcode: uint8): int 
     result = 12
 
 proc opUnimpl(cpu: var Sm83; opcode: uint8): int =
-  warn &"opcode {opcode.hex} not implemented yet"
+  fatal &"opcode {opcode.hex} not implemented yet"
   quit(1)
 
 proc opIllegal(cpu: var Sm83; opcode: uint8): int =
   error &"illegal opcode {opcode.hex}"
 
 proc opCbUnimpl(cpu: var Sm83; opcode: uint8): int =
-  warn &"opcode 0xcb{opcode:02x} is not implemented yet"
+  fatal &"opcode 0xcb{opcode:02x} is not implemented yet"
   quit(1)
 
 proc opBit[B: static uint8; S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
@@ -736,7 +736,7 @@ proc opSla[T: static AddrModes](cpu: var Sm83; opcode: uint8): int =
   T.setValue(cpu, r)
 
 proc opRst[N: static Address](cpu: var Sm83; opcode: uint8): int =
-  debug &"RST {N:02x}"
+  info &"RST {N:02x}"
   cpu.push(cpu.pc)
   cpu.pc = N
 
