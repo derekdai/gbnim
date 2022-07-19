@@ -22,12 +22,13 @@ func r(self: Rect): int {.inline.} = self.x + self.w
 func b(self: Rect): int {.inline.} = self.y + self.h
 
 const
-  SepWidth = 5
+  SepWidth = 8
+  SepHeight = 8
   DispRes = Rect(x: 0, y: 0, w: 160, h: 144)
   MainView = Rect(x: 0, y: 0, w: DispRes.w * 4, h: DispRes.h * 4)
   TilesView = Rect(x: MainView.r + SepWidth, y: 0, w: 256, h: 48)
-  BgTileMapView = Rect(x: TilesView.x, y: TilesView.b + SepWidth, w: TilesView.w, h: 256)
-  WinTileMapView = Rect(x: TilesView.x, y: BgTileMapView.b + SepWidth, w: TilesView.w, h: BgTileMapView.h)
+  BgTileMapView = Rect(x: TilesView.x, y: TilesView.b + SepHeight, w: TilesView.w, h: 256)
+  WinTileMapView = Rect(x: TilesView.x, y: BgTileMapView.b + SepHeight, w: TilesView.w, h: BgTileMapView.h)
   WinDimn = (w: WinTileMapView.r, h: max(MainView.b, WinTileMapView.b))
 
 type
@@ -122,7 +123,7 @@ type
     oamIntr {.bitsize: 1.}: bool
     coincidenceIntr {.bitsize: 1.}: bool
   PpuFlag = enum
-    Dirty
+    Refresh
     VRamDirty
   PpuFlags = set[PpuFlag]
   SpriteAttribute = object
@@ -183,33 +184,58 @@ func bgColor(self: Ppu; i: PaletteIndex): Shade {.inline.} =
 proc loadBgp(self: Ppu): byte = cast[byte](self.bgp)
 proc storeBgp(self: Ppu; s: byte) =
   self.bgp = cast[BgPalette](s)
-  debug &"BGP={self.bgp}"
+  info &"BGP={self.bgp}"
 
 proc loadScy(self: Ppu): byte = self.scx
 proc storeScy(self: Ppu; s: byte) =
   self.scy = s
-  debug &"SCY: {self.scy}"
+  info &"SCY: {self.scy}"
 
 proc loadScx(self: Ppu): byte = self.scy
 proc storeScx(self: Ppu; s: byte) =
   self.scx = s
-  debug &"SCX: {self.scx}"
+  info &"SCX: {self.scx}"
+
+func lcdEnabled(self: Ppu): bool {.inline.} = self.lcdc.lcdEnable
+
+proc lcdEnable(self: Ppu) =
+  self.ly = 0
+  self.stat.mode = lmReadOam
+  self.rend.setRenderTarget(self.main).errQuit
+  self.rend.setRenderDrawColor(ColorWhite.r, ColorWhite.g, ColorWhite.b, ColorWhite.a).errQuit
+  self.rend.renderFillRect(unsafeAddr DispRes).errQuit
+
+proc lcdDisable(self: Ppu) =
+  self.rend.setRenderTarget(self.main).errQuit
+  self.rend.setRenderDrawColor(ColorPowerOff.r, ColorPowerOff.g, ColorPowerOff.b, ColorPowerOff.a).errQuit
+  self.rend.renderFillRect(unsafeAddr DispRes).errQuit
 
 converter toByte(v: Lcdc): byte {.inline.} = cast[byte](v)
 proc loadLcdc(self: Ppu): byte = self.lcdc
 proc storeLcdc(self: Ppu; s: byte) =
-  if s != self.lcdc:
-    self.flags += Dirty
-    self.flags += VramDirty
+  if s == self.lcdc:
+    return
+
+  if not self.lcdc.lcdEnable and cast[Lcdc](s).lcdEnable:
+    self.lcdEnable()
+  elif self.lcdc.lcdEnable and not cast[Lcdc](s).lcdEnable:
+    self.lcdDisable()
+
+  self.flags += VramDirty
   self.lcdc = cast[Lcdc](s)
-  debug &"LCDC: {self.lcdc}"
+  info &"LCDC: {self.lcdc}"
 
 proc loadLy(self: Ppu): byte =
-  debug &"LY: {self.ly}"
+  info &"LY: {self.ly}"
   self.ly
-proc storeLy(self: Ppu; s: byte) =
-  ## Writing will reset the counter?
-  discard
+proc storeLy(self: Ppu; s: byte) = discard
+
+proc loadLyc(self: Ppu): byte =
+  info &"LYC: {self.ly}"
+  self.lyc
+proc storeLyc(self: Ppu; s: byte) =
+  self.lyc = s
+  info &"LYC: {self.lyc}"
 
 type
   VideoRam = ref object of Memory
@@ -218,8 +244,6 @@ type
 proc newVideoRam(ppu: Ppu): VideoRam =
   result = VideoRam(ppu: ppu)
   Memory.init(result, VRAM)
-
-func lcdEnabled(self: Ppu): bool {.inline.} = self.lcdc.lcdEnable
 
 proc assertAccess(self: VideoRam) =
   if self.ppu.lcdEnabled and self.ppu.stat.mode in {lmTrans}:
@@ -255,7 +279,7 @@ method store*(self: var ObjAttrTable; a: Address; value: byte) {.locks: "unknown
   self.ppu.oam[a - OAM.a] = value
 
 proc newPpu*(mctrl: MemoryCtrl; iom: IoMemory): Ppu =
-  var ppu = Ppu(flags: {Dirty, VRamDirty})
+  var ppu = Ppu(flags: {Refresh, VRamDirty})
 
   iom.setHandler IoBgp,
     proc(cpu: Sm83; a: Address): byte = loadBgp(ppu),
@@ -276,6 +300,10 @@ proc newPpu*(mctrl: MemoryCtrl; iom: IoMemory): Ppu =
   iom.setHandler IoLy,
     proc(cpu: Sm83; a: Address): byte = loadLy(ppu),
     proc(cpu: Sm83; a: Address; s: byte) = storeLy(ppu, s)
+
+  iom.setHandler IoLyc,
+    proc(cpu: Sm83; a: Address): byte = loadLyc(ppu),
+    proc(cpu: Sm83; a: Address; s: byte) = storeLyc(ppu, s)
 
   let vram = newVideoRam(ppu)
   mctrl.map(vram)
@@ -313,6 +341,8 @@ proc newPpu*(mctrl: MemoryCtrl; iom: IoMemory): Ppu =
     TEXTUREACCESS_TARGET,
     WinTileMapView.w,
     WinTileMapView.h).errQuit
+
+  ppu.lcdDisable()
 
   ppu
 
@@ -352,9 +382,6 @@ proc drawTileMap(self: Ppu; tileMap: TileMap) =
       self.drawTile(tileMap[r][c], p)
 
 proc updateTileMapView(self: Ppu) =
-  if not self.lcdc.lcdEnable:
-    return
-
   self.rend.setRenderTarget(self.tiles).errQuit
   self.drawTiles()
   self.rend.setRenderTarget(self.bgMap).errQuit
@@ -365,61 +392,87 @@ proc updateTileMapView(self: Ppu) =
 proc updateMainView(self: Ppu) =
   self.rend.setRenderTarget(self.main).errQuit
   if not self.lcdEnabled:
-    self.rend.setRenderDrawColor(ColorPowerOff.r, ColorPowerOff.g,
-        ColorPowerOff.b, 0x00).errQuit
-  else:
-    self.rend.setRenderDrawColor(ColorWhite.r, ColorWhite.g, ColorWhite.b, 0x00).errQuit
-  self.rend.renderFillRect(unsafeAddr DispRes).errQuit
+    self.rend.setRenderDrawColor(ColorPowerOff.r, ColorPowerOff.g, ColorPowerOff.b, ColorPowerOff.a).errQuit
+    self.rend.renderFillRect(unsafeAddr DispRes).errQuit
+    return
+
+  let srcRect = Rect(x: self.scx.int32, y: self.scy.int32, w: 160, h: 144)
+  self.rend.renderCopy(self.bgMap, unsafeAddr srcRect, unsafeAddr DispRes).errQuit
+
+proc processTransMode(self: Ppu) =
+  discard
+
+proc processOamMode(self: Ppu) =
+  discard
+
+proc processHBlankMode(self: Ppu) =
+  discard
+
+proc processVBlankMode(self: Ppu) =
+  discard
 
 proc process*(self: Ppu; cpu: Sm83; ticks: Tick) =
-  var statIntr = false
+  if self.lcdEnabled:
+    self.ticks += ticks
 
-  self.ticks += ticks
-  case self.stat.mode
-  of lmHBlank:
-    if self.ticks >= 207:
-      self.ticks -= 207
-      self.ly.inc
-      self.stat.concidence = self.ly == self.lyc
-      statIntr = statIntr or (self.stat.concidence and self.stat.coincidenceIntr)
-      self.stat.mode =
-        if self.ly == 144:
-          cpu.setInterrupt(VBlank)
-          statIntr = statIntr or self.stat.vblankIntr
+  if Refresh in self.flags:
+    self.updateTileMapView()
+    #self.updateMainView()
 
-          self.updateMainView()
-          self.updateTileMapView()
+    self.rend.setRenderTarget(nil).errQuit
+    self.rend.renderCopy(self.main, nil, unsafeAddr MainView).errQuit
+    self.rend.renderCopy(self.tiles, nil, unsafeAddr TilesView).errQuit
+    self.rend.renderCopy(self.bgMap, nil, unsafeAddr BgTileMapView).errQuit
+    self.rend.renderCopy(self.winMap, nil, unsafeAddr WinTileMapView).errQuit
+    self.rend.renderPresent()
 
-          self.rend.setRenderTarget(nil).errQuit
-          self.rend.renderCopy(self.main, nil, unsafeAddr MainView).errQuit
-          self.rend.renderCopy(self.tiles, nil, unsafeAddr TilesView).errQuit
-          self.rend.renderCopy(self.bgMap, nil, unsafeAddr BgTileMapView).errQuit
-          self.rend.renderCopy(self.winMap, nil, unsafeAddr WinTileMapView).errQuit
-          self.rend.renderPresent()
+    self.flags -= Refresh
 
-          lmVBlank
-        else:
-          statIntr = statIntr or self.stat.oamIntr
-          lmReadOam
-  of lmVBlank:
-    if self.ticks >= 456:
-      self.ticks -= 456
-      self.ly.inc
-      if self.ly >= 153:
-        self.stat.mode = lmReadOam
-        statIntr = statIntr or self.stat.oamIntr
-        cpu.clearInterrupt(VBlank)
-  of lmReadOam:
-    if self.ticks >= 83:
-      self.stat.mode = lmTrans
-      self.ticks -= 83
-  of lmTrans:
-    if self.ticks >= 229:
-      self.stat.mode = lmHBlank
-      statIntr = statIntr or self.stat.hblankIntr
-      self.ticks -= 229
+  #case self.stat.mode
+  #of lmHBlank:
+  #  if self.ticks >= 207:
+  #    self.ticks -= 207
+  #    self.ly.inc
+  #    self.stat.concidence = self.ly == self.lyc
+  #    statIntr = statIntr or (self.stat.concidence and self.stat.coincidenceIntr)
+  #    self.stat.mode =
+  #      if self.ly == 144:
+  #        cpu.setInterrupt(VBlank)
+  #        statIntr = statIntr or self.stat.vblankIntr
 
-  if statIntr:
-    cpu.setInterrupt(LcdStat)
-  else:
-    cpu.clearInterrupt(LcdStat)
+  #        self.updateTileMapView()
+  #        self.updateMainView()
+
+  #        self.rend.setRenderTarget(nil).errQuit
+  #        self.rend.renderCopy(self.main, nil, unsafeAddr MainView).errQuit
+  #        self.rend.renderCopy(self.tiles, nil, unsafeAddr TilesView).errQuit
+  #        self.rend.renderCopy(self.bgMap, nil, unsafeAddr BgTileMapView).errQuit
+  #        self.rend.renderCopy(self.winMap, nil, unsafeAddr WinTileMapView).errQuit
+  #        self.rend.renderPresent()
+
+  #        lmVBlank
+  #      else:
+  #        statIntr = statIntr or self.stat.oamIntr
+  #        lmReadOam
+  #of lmVBlank:
+  #  if self.ticks >= 456:
+  #    self.ticks -= 456
+  #    self.ly.inc
+  #    if self.ly >= 153:
+  #      self.stat.mode = lmReadOam
+  #      statIntr = statIntr or self.stat.oamIntr
+  #      cpu.clearInterrupt(VBlank)
+  #of lmReadOam:
+  #  if self.ticks >= 83:
+  #    self.stat.mode = lmTrans
+  #    self.ticks -= 83
+  #of lmTrans:
+  #  if self.ticks >= 229:
+  #    self.stat.mode = lmHBlank
+  #    statIntr = statIntr or self.stat.hblankIntr
+  #    self.ticks -= 229
+
+  #if statIntr:
+  #  cpu.setInterrupt(LcdStat)
+  #else:
+  #  cpu.clearInterrupt(LcdStat)

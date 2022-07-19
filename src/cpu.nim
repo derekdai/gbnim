@@ -85,14 +85,14 @@ method load*(self: Sm83; a: Address): byte {.locks: "unknown".} =
 
 method store*(self: var Sm83; a: Address; value: byte) {.locks: "unknown".} =
   self.ie = cast[InterruptFlags](value)
-  debug &"IE: {self.ie}"
+  info &"IE: {self.ie}"
 
-func loadIf*(self: Sm83; a: Address): byte =
+proc loadIf*(self: Sm83; a: Address): byte =
   cast[byte](self.if)
 
 proc storeIf*(self: Sm83; a: Address; s: byte) =
   self.if = cast[InterruptFlags](s)
-  debug &"IF: {self.if}"
+  info &"IF: {self.if}"
 
 proc newSm83*(freq: int): Sm83 =
   result = Sm83(freq: freq)
@@ -649,9 +649,9 @@ proc opAdd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uin
 
 proc opAdd16[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
   if S.inverted:
-    debug &"SUB A,{S}"
+    debug &"SUB {D},{S}"
   else:
-    debug &"ADD A,{S}"
+    debug &"ADD {D},{S}"
   let s = S.value(cpu)
   let d = D.value(cpu)
   let r = d.uint32 + s
@@ -736,7 +736,7 @@ proc opSla[T: static AddrModes](cpu: var Sm83; opcode: uint8): int =
   T.setValue(cpu, r)
 
 proc opRst[N: static Address](cpu: var Sm83; opcode: uint8): int =
-  info &"RST {N:02x}"
+  info &"RST {N:02x}h"
   cpu.push(cpu.pc)
   cpu.pc = N
 
