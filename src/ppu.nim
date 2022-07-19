@@ -204,10 +204,16 @@ proc newVideoRam(ppu: Ppu): VideoRam =
   result = VideoRam(ppu: ppu)
   Memory.init(result, VRAM)
 
+proc assertAccess(self: VideoRam) =
+  if self.ppu.stat.mode in {lmTrans}:
+    info &"VRAM access in LCD mode {self.ppu.stat.mode.ord}"
+
 method load(self: VideoRam; a: Address): byte {.locks: "unknown".} =
+  self.assertAccess()
   self.ppu.vram[a - self.region.a]
 
 method store(self: var VideoRam; a: Address; value: byte) {.locks: "unknown".} =
+  self.assertAccess()
   self.ppu.vram[a - self.region.a] = value
   self.ppu.flags.incl VRamDirty
 
@@ -219,10 +225,16 @@ proc newObjAttrTable(ppu: Ppu): ObjAttrTable =
   result = ObjAttrTable(ppu: ppu)
   Memory.init(result, OAM)
 
+proc assertAccess(self: ObjAttrTable) =
+  if self.ppu.stat.mode notin {lmHBlank, lmVBlank}:
+    info &"OAM access in LCD mode {self.ppu.stat.mode.ord}"
+
 method load*(self: ObjAttrTable; a: Address): byte {.locks: "unknown".} =
+  self.assertAccess()
   warn &"unhandled load from 0x{a:04x}"
 
 method store*(self: var ObjAttrTable; a: Address; value: byte) {.locks: "unknown".} =
+  self.assertAccess()
   self.ppu.oam[a - OAM.a] = value
 
 proc newPpu*(mctrl: MemoryCtrl; iom: IoMemory): Ppu =
