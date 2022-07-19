@@ -59,9 +59,10 @@ proc step*(self: Dmg) =
   while pollEvent(addr ev) != 0:
     if ev.kind == QUIT:
       self.stop()
+    self.joypad.handleEvent(ev)
 
   let ticks = self.cpu.step()
-  self.joypad.process()
+  self.joypad.process(self.cpu)
   self.ppu.process(self.cpu, ticks)
   self.timer.process(self.cpu, ticks)
 
