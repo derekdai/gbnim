@@ -81,6 +81,7 @@ const
   NC = InvFlag(Flag.C.ord)
 
 method load*(self: Sm83; a: Address): byte {.locks: "unknown".} =
+  info &"IE: {self.ie}"
   cast[byte](self.ie)
 
 method store*(self: var Sm83; a: Address; value: byte) {.locks: "unknown".} =
@@ -327,6 +328,13 @@ func `ime=`*(self: Sm83; v: bool) {.inline.} =
   else:
     self.flags.excl cfIme
 
+proc opUnimpl(cpu: var Sm83; opcode: uint8): int =
+  fatal &"opcode {opcode.hex} not implemented yet"
+  quit(1)
+
+proc opIllegal(cpu: var Sm83; opcode: uint8): int =
+  error &"illegal opcode {opcode.hex}"
+
 proc opSuspend(cpu: var Sm83; opcode: uint8): int =
   if opcode == 0x10:
     info "STOP"
@@ -493,13 +501,6 @@ proc opCall[F: static Flags; I: static bool](cpu: var Sm83; opcode: uint8): int 
     cpu.pc = a
     result = 12
 
-proc opUnimpl(cpu: var Sm83; opcode: uint8): int =
-  fatal &"opcode {opcode.hex} not implemented yet"
-  quit(1)
-
-proc opIllegal(cpu: var Sm83; opcode: uint8): int =
-  error &"illegal opcode {opcode.hex}"
-
 proc opCbUnimpl(cpu: var Sm83; opcode: uint8): int =
   fatal &"opcode 0xcb{opcode:02x} is not implemented yet"
   quit(1)
@@ -507,75 +508,57 @@ proc opCbUnimpl(cpu: var Sm83; opcode: uint8): int =
 proc opBit[B: static uint8; S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
   debug &"BIT {B},{S}"
   let v = S.value(cpu)
-
-  cpu.f.excl N
-  cpu.f.incl H
-  if v.testBit(B):
-    cpu.f.excl Z
-  else:
-    cpu.f.incl Z
+  cpu.f -= N
+  cpu.f += H
+  cpu.f{Z} = v.testBit(B)
 
 proc opRes[B: static uint8; S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
   debug &"RES {B},{S}"
-  var v = S.value(cpu)
-  v.clearBit(B)
-  S.setValue(cpu, v)
+  S.setValue(cpu, S.value(cpu) and (1u8 shl B).bitnot)
 
 proc opSet[B: static uint8; S: static AddrModes](cpu: var Sm83; opcode: uint8): int =
-  debug &"RES {B},{S}"
-  var v = S.value(cpu)
-  v.setBit(B)
-  S.setValue(cpu, v)
+  debug &"SET {B},{S}"
+  S.setValue(cpu, S.value(cpu) or (1 shl B))
 
 proc opCpl(cpu: var Sm83; opcode: uint8): int =
   debug "CPL"
-  cpu.f = cpu.f - {N, H}
+  cpu.f = cpu.f + {N, H}
   cpu.r(A) = not cpu.r(A)
 
 proc opSwap[T: static AddrModes](cpu: var Sm83; opcode: uint8): int =
   debug &"SWAP {T}"
   let v = T.value(cpu)
-  cpu.f = {}
-  if v == 0:
-    cpu.f.incl Z
+  cpu.f = if v == 0: {Z} else: {}
   T.setValue(cpu, (v shl 4) or (v shr 4))
 
 proc opRl[T: static AddrModes; F: static Flags](cpu: var Sm83; opcode: uint8): int =
   var v = T.value(cpu)
-  var f: Flags
-  if v.testBit(7):
-    f.incl C
-  let c =
-    if (opcode shr 4) == 0:
-      debug &"RLC {T}"
-      v shr 7
-    else:
-      debug &"RL {T}"
-      uint8(C in cpu.f)
-  v = (v shl 1) or c
-  when Z in F.Flags:
-    if v == 0:
-      f.incl Z
-  cpu.f = f
+  let b = v shr 7
+  var r = v shl 1
+  if opcode.testBit(4):
+    debug &"RL {T}"
+    r = r or byte(cpu.f{C})
+  else:
+    debug &"RLC {T}"
+    r = r or b
+  cpu.f = if b != 0: {Flag.C} else: {}
+  while Z in F.Flags:
+    cpu.f{Z} = r == 0
   T.setValue(cpu, v)
 
 proc opRr[T: static AddrModes; F: static Flags](cpu: var Sm83; opcode: uint8): int =
   var v = T.value(cpu)
-  var f: Flags
-  if v.testBit(0):
-    f.incl C
-  let c =
-    if (opcode shr 4) == 0:
-      debug &"RRC {T}"
-      v and 1
-    else:
-      debug &"RR {T}"
-      uint8(C in cpu.f)
-  v = (v shr 1) or (c shl 7)
-  when Z in F.Flags:
-    if v == 0:
-      f.incl Z
-  cpu.f = f
+  let b = v shl 7
+  var r = v shr 1
+  if opcode.testBit(4):
+    debug &"RR {T}"
+    r = r or (byte(cpu.f{C}) shl 7)
+  else:
+    debug &"RRC {T}"
+    r = r or b
+  cpu.f = if b != 0: {Flag.C} else: {}
+  while Z in F.Flags:
+    cpu.f{Z} = r == 0
   T.setValue(cpu, v)
 
 proc opDaa(cpu: var Sm83; opcode: uint8): int =
@@ -1283,13 +1266,13 @@ proc step*(self: var Sm83): Tick {.discardable.} =
       self.ime = false
       self.push(self.pc)
       let intr = Interrupt(cast[byte](iset).firstSetBit() - 1)
-      debug &"interrupted by {intr}"
-      self.if.excl intr
+      info &"Interrupted by {intr}"
+      self.clearInterrupt(intr)
       self.pc = InterruptVector + byte(intr.ord shl 3)
 
   let opcode = self.fetch
   let desc = opcodes[opcode]
   let t = desc.entry(self, opcode)
-  debug &"- clocks({self.ticks})+={desc.t}+{t}"
+  debug &"- clocks({self.ticks}, {self.ticks shr 22}s)+={desc.t}+{t}"
   result = desc.t + t
   self.ticks += result
