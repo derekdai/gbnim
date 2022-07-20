@@ -118,9 +118,10 @@ proc newEchoRam*(target: Address; mctrl: MemoryCtrl): EchoRam =
 
 method load*(self: EchoRam; a: Address): byte {.locks: "unknown".} =
   let offset = a - self.region.a
-  let mem = self.mctrl.lookup(self.target + offset)
+  let target = self.target + offset
+  let mem = self.mctrl.lookup(target)
   if mem != nil:
-    result = mem.load(offset)
+    result = mem.load(target)
   else:
     warn &"address 0x{a:04x} is not mapped"
 
@@ -159,7 +160,7 @@ method load*(self: NilRom; a: Address): byte {.locks: "unknown".} =
   self.value
 
 method store*(self: var NilRom; a: Address; value: byte) {.locks: "unknown".} =
-  warn &"unhandled store to 0x{a:04x}"
+  warn &"unhandled store to ROM at 0x{a:04x}"
 
 type
   Ram* = ref object of Memory
