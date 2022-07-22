@@ -9,6 +9,11 @@ const
   InterruptVector = Address(0x0040)
 
 type
+  NilFlag = distinct int
+
+const NilFlagTag = NilFlag(0)
+
+type
   Register8* = enum
     B, C,
     D, E,
@@ -33,11 +38,11 @@ type
     N,
     Z,
   Flags = set[Flag]
-  InvFlag* {.size: sizeof(byte).} = distinct Flag
-  InvFlags = set[InvFlag]
-  FlagSet =
-    Flags |
-    InvFlags
+  InvFlag {.size: sizeof(byte).} = distinct Flag
+  FlagTypes =
+    Flag |
+    InvFlag |
+    NilFlag
 
 proc `+=`(self: var Flags; f: Flag) = self.incl f
 proc `+=`(self: var Flags; f: InvFlag) = self.excl Flag(f.ord)
@@ -48,6 +53,7 @@ proc `{}=`(self: var Flags; f: Flag or InvFlag; v: bool) =
   if v: self += f else: self -= f
 proc `{}`(self: Flags; f: Flag or InvFlag): bool =
   f in self
+proc `{}`(self: Flags; f: NilFlag): bool = true
 converter toBool(v: SomeInteger): bool =
   assert v in {0..1}
   cast[bool](v)
@@ -315,6 +321,7 @@ proc `$`(f: InvFlag): string =
     "NC"
   else:
     ""
+proc `$`(f: NilFlag): string = "{}"
 
 type
   OpcodeEntry = proc(cpu: Sm83; opcode: uint8): int {.nimcall.}
@@ -355,133 +362,45 @@ proc opLd[D: static AddrModes; S: static AddrModes2](cpu: Sm83; opcode: uint8): 
   let v = S.value(cpu)
   D.setValue(cpu, v)
 
-  when S is Reg16Imme8:
-    discard
-
-proc opJr(cpu: Sm83; opcode: uint8): int =
-  let v = cast[int8](cpu.fetch)
-  case opcode shr 4:
-  of 0x1:
-    debug &"JR {v}"
-  of 0x2:
-    if opcode.testBit(3):
-      debug &"JR Z,{v}"
-      if Z notin cpu.f: return
-    else:
-      debug &"JR NZ,{v}"
-      if Z in cpu.f: return
+proc opJr[S: static AddrModes2; F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
+  let v = S.value(cpu)
+  debug &"JR {F},{v}"
+  if cpu.f{F}:
     result = 4
-  else:
-    if opcode.testBit(3):
-      debug &"JR C,{v}"
-      if C notin cpu.f: return
-    else:
-      debug &"JR NC"
-      if C in cpu.f: return
-    result = 4
-  cpu.pc += v
+    cpu.pc += v
 
-proc check(fs: static FlagSet; cpu: Sm83): bool {.inline.} =
-  when fs is Flags:
-    when Z in fs.Flags: Z in cpu.f
-    elif N in fs.Flags: N in cpu.f
-    elif H in fs.Flags: H in cpu.f
-    elif C in fs.Flags: C in cpu.f
-    else: true
-  else:
-    when NZ in fs: Z notin cpu.f
-    elif NC in fs: C notin cpu.f
-    else: true
-
-proc opJp[S: static AddrModes; F: static FlagSet](cpu: Sm83; opcode: uint8): int =
+proc opJp[S: static AddrModes; F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
   debug &"JP {F},{S}"
   let v = S.value(cpu)
-  if F.check(cpu):
+  if cpu.f{F}:
     cpu.pc = v
     result = 4
 
 proc opPop[D: static AddrModes](cpu: Sm83; opcode: uint8): int =
-  let v = cpu.pop
   debug &"POP {D}"
-  D.setValue(cpu, v)
+  D.setValue(cpu, cpu.pop)
 
 proc opPush[S: static AddrModes](cpu: Sm83; opcode: uint8): int =
-  let v = S.value(cpu)
   debug &"PUSH {S}"
-  cpu.push v
+  cpu.push S.value(cpu)
 
-proc opRet[F: static Flags; I: static bool](cpu: Sm83; opcode: uint8): int =
-  let cond =
-    when {}.Flags == F:
-      if opcode == 0xd9:
-        ## RETI
-        debug "RETI"
-        cpu.ime = true
-      else:
-        debug "RET"
-      true
-    elif Z in F and I:
-      debug "RET NZ"
-      if Z notin cpu.f:
-        true
-      else:
-        false
-    elif Z in F and not I:
-      debug "RET Z"
-      if Z notin cpu.f:
-        true
-      else:
-        false
-    elif C in F and I:
-      debug &"RET NC"
-      if C notin cpu.f:
-        true
-      else:
-        false
-    elif C in F and not I:
-      debug &"RET C"
-      if C in cpu.f:
-        true
-      else:
-        false
-  if cond:
-    cpu.pc = cpu.pop
+proc opRet[F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
+  if opcode == 0xd9:
+    debug &"RETI"
+    cpu.ime = true
+  else:
+    debug &"RET {F}"
+  if cpu.f{F}:
     result = 12
+    cpu.pc = cpu.pop
 
-proc opCall[F: static Flags; I: static bool](cpu: Sm83; opcode: uint8): int =
+proc opCall[F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
+  debug &"CALL {F},u16"
   let a = cpu.fetch16()
-  let c =
-    when {}.Flags == F:
-      debug &"CALL {a.hex}"
-      true
-    elif Z in F and I:
-      debug &"CALL NZ,{a.hex}"
-      if Z notin cpu.f:
-        true
-      else:
-        false
-    elif Z in F and not I:
-      debug &"CALL Z,{a.hex}"
-      if Z in cpu.f:
-        true
-      else:
-        false
-    elif C in F and I:
-      debug &"CALL NC,{a.hex}"
-      if C notin cpu.f:
-        true
-      else:
-        false
-    elif C in F and not I:
-      debug &"CALL C,{a.hex}"
-      if C in cpu.f:
-        true
-      else:
-        false
-  if c:
+  if cpu.f{F}:
+    result = 12
     cpu.push cpu.pc
     cpu.pc = a
-    result = 12
 
 proc opCbUnimpl(cpu: Sm83; opcode: uint8): int =
   fatal &"opcode 0xcb{opcode:02x} is not implemented yet"
@@ -679,22 +598,20 @@ proc opCp[S: static AddrModes](cpu: Sm83; opcode: uint8): int =
       else: {N, H, C}
 
 proc opIme(cpu: Sm83; opcode: uint8): int =
-  if opcode == 0xf3:
-    debug "DI"
-    cpu.flags.excl cfIme
-  else:
-    debug "EI"
-    cpu.flags.incl cfIme
+  cpu.flags{cfIme} =
+    if opcode == 0xf3:
+      debug "DI"
+      false
+    else:
+      debug "EI"
+      true
 
 proc opSrl[T: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"SRL {T}"
   var v = T.value(cpu)
-  cpu.f = {}
-  if v.testBit(0):
-    cpu.f.incl C
+  cpu.f{C} = v.testBit(0)
   v = v shr 1
-  if v == 0:
-    cpu.f.incl Z
+  cpu.f{Z} = v == 0
   T.setValue(cpu, v)
 
 proc opSla[T: static AddrModes](cpu: Sm83; opcode: uint8): int =
@@ -999,7 +916,7 @@ const opcodes = [
   (t: 4, entry: opSub[D, 1u8]),
   (t: 8, entry: opLd[D, Immediate8Tag]),
   (t: 4, entry: opRl[A, {}]),
-  (t: 12, entry: opJr),
+  (t: 8, entry: opJr[ImmediateS8Tag, NilFlagTag]),
   (t: 8, entry: opAdd[HL, DE]),
   (t: 8, entry: opLd[A, DE.indir]),
   (t: 8, entry: opSub[DE, 1u8]),
@@ -1007,7 +924,7 @@ const opcodes = [
   (t: 4, entry: opSub[E, 1u8]),
   (t: 8, entry: opLd[E, Immediate8Tag]),
   (t: 4, entry: opRr[A, {}]),
-  (t: 8, entry: opJr),         # 0x20
+  (t: 8, entry: opJr[ImmediateS8Tag, NZ]),         # 0x20
   (t: 12, entry: opLd[HL, Immediate16Tag]),
   (t: 8, entry: opLd[Reg16Inc(HL).indir, A]),
   (t: 8, entry: opAdd[HL, 1u16]),
@@ -1015,7 +932,7 @@ const opcodes = [
   (t: 4, entry: opSub[Register8.H, 1u8]),
   (t: 8, entry: opLd[Register8.H, Immediate8Tag]),
   (t: 4, entry: opDaa),
-  (t: 8, entry: opJr),
+  (t: 8, entry: opJr[ImmediateS8Tag, Z]),
   (t: 8, entry: opAdd[HL, HL]),
   (t: 8, entry: opLd[A, Reg16Inc(HL).indir]),
   (t: 8, entry: opSub[HL, 1u8]),
@@ -1023,7 +940,7 @@ const opcodes = [
   (t: 4, entry: opSub[L, 1u8]),
   (t: 8, entry: opLd[L, Immediate8Tag]),
   (t: 4, entry: opCpl),
-  (t: 8, entry: opJr),         # 0x30
+  (t: 8, entry: opJr[ImmediateS8Tag, NC]),         # 0x30
   (t: 12, entry: opLd[SP, Immediate16Tag]),
   (t: 8, entry: opLd[Reg16Dec(HL).indir, A]),
   (t: 8, entry: opAdd[SP, 1u16]),
@@ -1031,7 +948,7 @@ const opcodes = [
   (t: 12, entry: opSub[HL.indir, 1u8]),
   (t: 8, entry: opLd[HL.indir, Immediate8Tag]),
   (t: 0, entry: opUnimpl),
-  (t: 8, entry: opJr),
+  (t: 8, entry: opJr[ImmediateS8Tag, Flag.C]),
   (t: 8, entry: opAdd[HL, SP]),
   (t: 8, entry: opLd[A, Reg16Dec(HL).indir]),
   (t: 8, entry: opSub[SP, 1u8]),
@@ -1167,35 +1084,35 @@ const opcodes = [
   (t: 4, entry: opCp[L]),
   (t: 8, entry: opCp[HL.indir]),
   (t: 4, entry: opCp[A]),
-  (t: 8, entry: opRet[{Z}, true]),         # 0xc0
+  (t: 8, entry: opRet[NZ]),         # 0xc0
   (t: 12, entry: opPop[BC]),
-  (t: 12, entry: opJp[Immediate16Tag, {NZ}]),
-  (t: 12, entry: opJp[Immediate16Tag, {}.Flags]),
-  (t: 12, entry: opCall[{Z}, true]),
+  (t: 12, entry: opJp[Immediate16Tag, NZ]),
+  (t: 12, entry: opJp[Immediate16Tag, NilFlagTag]),
+  (t: 12, entry: opCall[NZ]),
   (t: 16, entry: opPush[BC]),
   (t: 8, entry: opAdd[A, Immediate8Tag]),
   (t: 16, entry: opRst[0x00]),
-  (t: 8, entry: opRet[{Z}, false]),
-  (t: 8, entry: opRet[{}, false]),
-  (t: 12, entry: opJp[Immediate16Tag, {Z}]),
+  (t: 8, entry: opRet[Z]),
+  (t: 4, entry: opRet[NilFlagTag]),
+  (t: 12, entry: opJp[Immediate16Tag, Z]),
   (t: 4, entry: prefixCb),
-  (t: 12, entry: opCall[{Z}, false]),
-  (t: 12, entry: opCall[{}, false]),
+  (t: 12, entry: opCall[Z]),
+  (t: 12, entry: opCall[NilFlagTag]),
   (t: 8, entry: opAdd[A, WithCarry(Immediate8Tag)]),
   (t: 16, entry: opRst[0x08]),
-  (t: 8, entry: opRet[{Flag.C}, true]),         # 0xd0
+  (t: 8, entry: opRet[NC]),         # 0xd0
   (t: 12, entry: opPop[DE]),
-  (t: 12, entry: opJp[Immediate16Tag, {NC}]),
+  (t: 12, entry: opJp[Immediate16Tag, NC]),
   (t: 0, entry: opIllegal),
-  (t: 12, entry: opCall[{Flag.C}, true]),
+  (t: 12, entry: opCall[NC]),
   (t: 16, entry: opPush[DE]),
   (t: 8, entry: opSub[A, Immediate8Tag]),
   (t: 16, entry: opRst[0x10]),
-  (t: 8, entry: opRet[{Flag.C}, false]),
-  (t: 8, entry: opRet[{}, false]),
-  (t: 12, entry: opJp[Immediate16Tag, {Flag.C}]),
+  (t: 8, entry: opRet[Flag.C]),
+  (t: 4, entry: opRet[NilFlagTag]),
+  (t: 12, entry: opJp[Immediate16Tag, Flag.C]),
   (t: 0, entry: opIllegal),
-  (t: 12, entry: opCall[{Flag.C}, false]),
+  (t: 12, entry: opCall[Flag.C]),
   (t: 0, entry: opIllegal),
   (t: 8, entry: opSub[A, WithCarry(Immediate8Tag)]),
   (t: 16, entry: opRst[0x18]),
@@ -1208,7 +1125,7 @@ const opcodes = [
   (t: 8, entry: opAnd[Immediate8Tag]),
   (t: 16, entry: opRst[0x20]),
   (t: 0, entry: opAdd[SP, ImmediateS8Tag]),
-  (t: 0, entry: opJp[HL, {}.Flags]), # t: 0 is not typo
+  (t: 0, entry: opJp[HL, NilFlagTag]), # t: 0 is not typo
   (t: 16, entry: opLd[Immediate16Tag.indir, A]),
   (t: 0, entry: opIllegal),
   (t: 0, entry: opIllegal),
