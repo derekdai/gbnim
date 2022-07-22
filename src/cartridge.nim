@@ -398,7 +398,7 @@ method load*(self: RomBank; a: Address): byte {.locks: "unknown".} =
 
 proc requestMbc(self: Cartridge; a: Address; v: byte)
 
-method store*(self: var RomBank; a: Address; value: byte) {.locks: "unknown".} =
+method store*(self: RomBank; a: Address; value: byte) {.locks: "unknown".} =
   self.cart.requestMbc(a, value)
 
 func header*(self: Cartridge): lent Header {.inline.} = 

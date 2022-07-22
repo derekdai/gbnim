@@ -65,7 +65,7 @@ proc newIoMemory*(cpu: Sm83): IoMemory =
 method load*(self: IoMemory; a: Address): byte {.locks: "unknown".} =
   self.entries[a and 0x7f].load(self.cpu, a)
 
-method store*(self: var IoMemory; a: Address; value: byte) {.locks: "unknown".} =
+method store*(self: IoMemory; a: Address; value: byte) {.locks: "unknown".} =
   self.entries[a and 0x7f].store(self.cpu, a, value)
 
 func setHandler*(self: IoMemory; a: Address; load: IoLoad; store: IoStore) =

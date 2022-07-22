@@ -29,12 +29,12 @@ func init*(T: typedesc[Memory]; self: T; region: MemoryRegion) =
   self.region = region
 
 func `region`*(self: Memory): lent MemoryRegion = self.region
-func `region=`*(self: var Memory; region: MemoryRegion) = self.region = region
+func `region=`*(self: Memory; region: MemoryRegion) = self.region = region
 
 method load*(self: Memory; a: Address): byte {.base, locks: "unknown".} =
   assert false
 
-method store*(self: var Memory; a: Address; value: byte) {.base, locks: "unknown".} =
+method store*(self: Memory; a: Address; value: byte) {.base, locks: "unknown".} =
   assert false
 
 type
@@ -88,7 +88,7 @@ proc load*[T: SomeInteger](self: MemoryCtrl; a: Address): T {.inline.} =
   else:
     warn &"unhandled load from 0x{a:04x}"
 
-proc store*[T: SomeInteger](self: var MemoryCtrl; a: Address; v: T) {.inline.} =
+proc store*[T: SomeInteger](self: MemoryCtrl; a: Address; v: T) {.inline.} =
   var mem = self.lookup(a)
   if mem != nil:
     for n in 0u16..<sizeof(T):
@@ -100,9 +100,9 @@ proc store*[T: SomeInteger](self: var MemoryCtrl; a: Address; v: T) {.inline.} =
 proc `[]`*(self: MemoryCtrl; a: Address): byte {.inline.} = load[typeof(
     result)](self, a)
 
-proc `[]=`*(self: var MemoryCtrl; a: Address; v: byte) {.inline.} = self.store(a, v)
+proc `[]=`*(self: MemoryCtrl; a: Address; v: byte) {.inline.} = self.store(a, v)
 
-proc `[]=`*(self: var MemoryCtrl; a: Address;
+proc `[]=`*(self: MemoryCtrl; a: Address;
     v: uint16) {.inline.} = self.store(a, v)
 
 type
@@ -125,7 +125,7 @@ method load*(self: EchoRam; a: Address): byte {.locks: "unknown".} =
   else:
     warn &"address 0x{a:04x} is not mapped"
 
-method store*(self: var EchoRam; a: Address; value: byte) {.locks: "unknown".} =
+method store*(self: EchoRam; a: Address; value: byte) {.locks: "unknown".} =
   self.mctrl.store(self.target + (a - self.region.a), value)
 
 type
@@ -145,7 +145,7 @@ func data*(self: Rom): lent seq[byte] = self.data
 method load*(self: Rom; a: Address): byte {.locks: "unknown".} =
   self.data[a - self.region.a]
 
-method store*(self: var Rom; a: Address; value: byte) {.locks: "unknown".} =
+method store*(self: Rom; a: Address; value: byte) {.locks: "unknown".} =
   warn &"unhandled store to 0x{a:04x}"
 
 type
@@ -159,7 +159,7 @@ proc newNilRom*(region: MemoryRegion; value: byte): NilRom =
 method load*(self: NilRom; a: Address): byte {.locks: "unknown".} =
   self.value
 
-method store*(self: var NilRom; a: Address; value: byte) {.locks: "unknown".} =
+method store*(self: NilRom; a: Address; value: byte) {.locks: "unknown".} =
   warn &"unhandled store to ROM at 0x{a:04x}"
 
 type
@@ -174,6 +174,6 @@ proc newRam*(region: MemoryRegion): Ram =
 method load*(self: Ram; a: Address): byte {.locks: "unknown".} =
   self.buf[a - self.region.a]
 
-method store*(self: var Ram; a: Address; value: byte) {.locks: "unknown".} =
+method store*(self: Ram; a: Address; value: byte) {.locks: "unknown".} =
   self.buf[a - self.region.a] = value
 

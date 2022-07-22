@@ -285,7 +285,7 @@ method load(self: VideoRam; a: Address): byte {.locks: "unknown".} =
   self.assertAccess()
   self.ppu.vram[a - self.region.a]
 
-method store(self: var VideoRam; a: Address; value: byte) {.locks: "unknown".} =
+method store(self: VideoRam; a: Address; value: byte) {.locks: "unknown".} =
   self.assertAccess()
   self.ppu.vram[a - self.region.a] = value
   self.ppu.flags.incl VRamDirty
@@ -306,7 +306,7 @@ method load*(self: ObjAttrTable; a: Address): byte {.locks: "unknown".} =
   self.assertAccess()
   self.ppu.oam[a - OAM.a]
 
-method store*(self: var ObjAttrTable; a: Address; value: byte) {.locks: "unknown".} =
+method store*(self: ObjAttrTable; a: Address; value: byte) {.locks: "unknown".} =
   self.assertAccess()
   self.ppu.oam[a - OAM.a] = value
 
