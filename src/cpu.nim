@@ -1,4 +1,4 @@
-import memory, types, utils
+import memory, setsugar, types, utils
 import std/[bitops, logging, strformat]
 
 const
@@ -80,6 +80,32 @@ const
   NZ = InvFlag(Z.ord)
   NC = InvFlag(Flag.C.ord)
 
+type
+  Const =
+    uint8 or
+    uint16
+
+proc value(c: Const; _: var Sm83): typeof(c) = typeof(c)(c)
+
+type
+  WithCarry[T] = distinct T
+
+proc value(c: WithCarry; cpu: var Sm83): auto =
+  when typeof(c).T is enum:
+    WithCarry.T(c.ord).value(cpu)
+  else:
+    WithCarry.T(c).value(cpu)
+proc carry(_: WithCarry; cpu: Sm83): uint8 = uint8(cpu.f{C})
+proc carry[T](_: T; cpu: Sm83): uint8 = 0
+proc `$`(c: WithCarry): string =
+  when typeof(c).T is enum:
+    &"WithCarry({WithCarry.T(c.ord)})"
+  else:
+    &"WithCarry({WithCarry.T(c)})"
+
+proc upgrade(v: uint8): uint16 = typeof(result)(v)
+proc upgrade(v: uint16): uint32 = typeof(result)(v)
+
 method load*(self: Sm83; a: Address): byte {.locks: "unknown".} =
   info &"IE: {self.ie}"
   cast[byte](self.ie)
@@ -138,8 +164,8 @@ func sp*(self: var Sm83): var Address {.inline.} = self.r(SP)
 func sp*(self: Sm83): Address {.inline.} = self.r(SP)
 
 func f*(self: var Sm83): var Flags {.inline.} = cast[ptr Flags](addr self.regs[F])[]
-func f*(self: Sm83): Flags {.inline.} = cast[ptr Flags](addr self.regs[F])[]
-func `f=`*(self: Sm83; flags: Flags) {.inline.} = cast[ptr Flags](addr self.regs[F])[] = flags
+func f*(self: Sm83): Flags {.inline.} = cast[Flags](self.regs[F])
+func `f=`*(self: Sm83; flags: Flags) {.inline.} = self.regs[F] = cast[byte](flags)
 
 proc fetch(self: var Sm83): byte {.inline.} =
   result = load[byte](self.mctrl, self.pc)
@@ -189,18 +215,14 @@ type
     Register16 |
     Indir |
     Reg16Imme8 |
-    AddrModesInv
+    AddrModesInv |
+    Const |
+    WithCarry
 
 const Immediate8Tag = Immediate8(0)
 const Immediate16Tag = Immediate16(0)
 
 func toT[T](i: Indir[T]): T {.inline.} =
-  when T is enum:
-    T(i.ord)
-  else:
-    T(i)
-
-func toT[T](i: IndirInv[T]): T {.inline.} =
   when T is enum:
     T(i.ord)
   else:
@@ -212,16 +234,9 @@ func indir[T](v: T): Indir[T] {.inline.} =
   else:
     Indir[T](v)
 
-func inverted[T](_: T): bool =
-  when T is AddrModesInv or T is InvFlag:
-    true
-  else:
-    false
-
 func value(r: Register8; cpu: Sm83): uint8 {.inline.} = cpu.r(r)
 func value(r: Reg8Inv; cpu: Sm83): uint8 {.inline.} = 1 + not cpu.r(Register8(r.ord))
 func setValue(r: Register8; cpu: var Sm83; v: uint8) {.inline.} = cpu.r(r) = v
-func inv(r: Register8): Reg8Inv = Reg8Inv(r.ord)
 
 proc value(i: Indir[(Address, Register8)]; cpu: var Sm83): uint8 {.inline.} =
   cpu.mctrl[i.toT[0] + cpu.r(i.toT[1])]
@@ -250,7 +265,6 @@ proc value(pair: Reg16Imme8; cpu: var Sm83): uint16 {.inline.} =
 
 proc value(_: Immediate8; cpu: var Sm83): uint8 {.inline.} = cpu.fetch()
 proc value(_: Imme8Inv; cpu: var Sm83): uint8 {.inline.} = 1 + not cpu.fetch()
-func inv(i: Immediate8): Imme8Inv = Imme8Inv(i)
 
 proc value(_: Immediate16; cpu: var Sm83): uint16 {.inline.} = cpu.fetch16()
 
@@ -260,8 +274,6 @@ proc value(i: IndirInv[Register16]; cpu: Sm83): uint8 {.inline.} =
   1 + not cpu.mctrl[cpu.r(Register16(i.ord))]
 proc setValue(i: Indir[Register16]; cpu: var Sm83; v: uint8) {.inline.} =
   cpu.mctrl[cpu.r(Register16(i.ord))] = v
-func inv(i: Indir[Register16]): IndirInv[Register16] {.inline.} =
-  IndirInv[Register16](i)
 
 proc value(i: Indir[Reg16Inc]; cpu: var Sm83): uint8 {.inline.} =
   let r = Register16(i.toT.ord)
@@ -295,13 +307,10 @@ proc setValue(i: Indir[(Address, Immediate8)]; cpu: var Sm83; v: uint8) {.inline
 proc `$`(pair: (Address, Immediate8)): string = &"{pair[0].hex}+u8"
 proc `$`(pair: (Address, Register8)): string = &"{pair[0].hex}+{pair[1]}"
 proc `$`(_: Immediate8): string = "u8"
-proc `$`(_: Imme8Inv): string = "u8"
 proc `$`(_: Immediate16): string = "u16"
 proc `$`(r: Reg16Inc): string = &"{Register16(r.ord)}+"
 proc `$`(r: Reg16Dec): string = &"{Register16(r.ord)}-"
 proc `$`[T](i: Indir[T]): string = &"({i.toT})"
-proc `$`(r: Reg8Inv): string = &"{Register8(r.ord)}"
-proc `$`[T](i: IndirInv[T]): string = &"({i.toT})"
 proc `$`(f: InvFlag): string =
   let f = Flag(f.ord)
   if f == Z:
@@ -344,29 +353,6 @@ proc opSuspend(cpu: var Sm83; opcode: uint8): int =
 
 proc opNop(cpu: var Sm83; opcode: uint8): int =
   debug "NOP"
-
-proc opInc[T: static AddrModes; I: static SomeInteger](cpu: var Sm83; opcode: uint8): int =
-  when I == 1:
-    debug &"INC {T}"
-  else:
-    debug &"DEC {T}"
-  let v = T.value(cpu)
-  let r = v + I
-  when T isnot Register16:
-    when I == 1:
-      cpu.f.excl N
-    else:
-      cpu.f.incl N
-    if r == 0:
-      cpu.f.incl Z
-    else:
-      cpu.f.excl Z
-    if ((v and 0xff) + (I and 0xff)) shr 4 != 0:
-      cpu.f.incl H
-    else:
-      cpu.f.excl H
-    
-  T.setValue(cpu, r)
 
 proc opLd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
   debug &"LD {D},{S}"
@@ -589,68 +575,58 @@ proc opDaa(cpu: var Sm83; opcode: uint8): int =
   cpu.f -= H
   cpu.f{Z} = cpu.r(A) == 0
 
-proc opAdd[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
-  let adc = (opcode and 0xf) > 7
-  let s = S.value(cpu)
-  let d = D.value(cpu)
-  let c =
-    if adc:
-      when S.inverted:
-        not cast[uint8](C in cpu.f)
-      else:
-        cast[uint8](C in cpu.f)
-    else:
-      0
-  let r = d.uint16 + s + c
-  when S.inverted:
-    if adc:
-      debug &"SBC A,{S}"
-    else:
-      debug &"SUB A,{S}"
+proc opSub[T: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
+  #           8bit 16bit
+  # sub       Z1HC
+  # sub A,u8  Z1HC
+  # sbc       Z1HC
+  # dec       Z1H- ----
+  when S is Const:
+    debug &"DEC {T}"
+  elif S is WithCarry:
+    debug &"SBC {T},{S}"
   else:
-    if adc:
-      debug &"ADC A,{S}"
-    else:
-      debug &"ADD A,{S}"
-  D.setValue(cpu, uint8(r and 0xff))
-  if (r and 0xff) == 0:
-    cpu.f.incl Z
-  else:
-    cpu.f.excl Z
-  if r shr 8 != 0:
-    cpu.f.incl C
-  else:
-    cpu.f.excl C
-  if ((d and 0xf) + (s and 0xf) + (c and 0xf)) shr 4 != 0:
-    cpu.f.incl H
-  else:
-    cpu.f.excl H
-  when S.inverted:
-    cpu.f.incl N
-  else:
-    cpu.f.excl N
+    debug &"SUB {T},{S}"
+  let v1 = T.value(cpu)
+  let v2 = S.value(cpu)
+  let c = S.carry(cpu)
+  let r = v1 - v2 - c
+  T.setValue(cpu, typeof(v1)(r))
+  when T isnot Register16 or S isnot Const:
+    cpu.f{N} = true
+    cpu.f{H} = (v1 and 0xf) < ((v2 and 0xf) + c)
+    when T isnot Register16:
+      cpu.f{Z} = r == 0
+    when S isnot Const:
+      cpu.f{C} = v1 < (v2 + c)
 
-proc opAdd16[D: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
-  if S.inverted:
-    debug &"SUB {D},{S}"
+proc opAdd[T: static AddrModes; S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
+  #           8bit 16bit
+  # add       Z0HC -0HC
+  # add A,u8  Z0HC
+  # adc       Z0HC
+  # add A,u8  Z0HC
+  # add SP,i8 00HC
+  # inc       Z0H- ----
+  when S is Const:
+    debug &"INC {T}"
+  elif S is WithCarry:
+    debug &"ADC {T},{S}"
   else:
-    debug &"ADD {D},{S}"
-  let s = S.value(cpu)
-  let d = D.value(cpu)
-  let r = d.uint32 + s
-  D.setValue(cpu, uint16(r and 0xffff))
-  if r shr 16 != 0:
-    cpu.f.incl C
-  else:
-    cpu.f.excl C
-  if ((d and 0xfff) + (s and 0xfff)) shr 12 != 0:
-    cpu.f.incl H
-  else:
-    cpu.f.excl H
-  when S.inverted:
-    cpu.f.incl N
-  else:
-    cpu.f.excl N
+    debug &"ADD {T},{S}"
+  let v1 = T.value(cpu)
+  let v2 = S.value(cpu)
+  let r = v1.upgrade + v2 + S.carry(cpu)
+  T.setValue(cpu, typeof(v1)(r))
+  when T isnot Register16 or S isnot Const:
+    const s = sizeof(v1) * 4
+    const m = typeof(v1).high shr s
+    cpu.f{N} = false
+    cpu.f{H} = 0 != ((v1 and m) + (v2 and m) + S.carry(cpu)) shr s
+    when T isnot Register16:
+      cpu.f{Z} = typeof(v1)(r) == 0
+    when S isnot Const:
+      cpu.f{C} = 0 != r shr (sizeof(v1) * 8)
 
 proc opAnd[S: static AddrModes2](cpu: var Sm83; opcode: uint8): int =
   debug &"AND A,{S}"
@@ -991,65 +967,65 @@ const opcodes = [
   (t: 4, entry: OpcodeEntry(opNop)),
   (t: 12, entry: opLd[BC, Immediate16Tag]),
   (t: 8, entry: opLd[BC.indir, A]),
-  (t: 8, entry: opInc[BC, 1]),
-  (t: 4, entry: opInc[B, 1]),
-  (t: 4, entry: opInc[B, 0xff]),
+  (t: 8, entry: opAdd[BC, 1u16]),
+  (t: 4, entry: opAdd[B, 1u8]),
+  (t: 4, entry: opSub[B, 1u8]),
   (t: 8, entry: opLd[B, Immediate8Tag]),
   (t: 4, entry: opRl[A, {}]),
   (t: 20, entry: opLd[Immediate16Tag.indir, SP]),
-  (t: 8, entry: opAdd16[HL, BC]),
+  (t: 8, entry: opAdd[HL, BC]),
   (t: 8, entry: opLd[A, BC.indir]),
-  (t: 8, entry: opInc[BC, 0xffff]),
-  (t: 4, entry: opInc[Register8.C, 1]),
-  (t: 4, entry: opInc[Register8.C, 0xff]),
+  (t: 8, entry: opSub[BC, 1u8]),
+  (t: 4, entry: opAdd[Register8.C, 1u8]),
+  (t: 4, entry: opSub[Register8.C, 1u8]),
   (t: 8, entry: opLd[Register8.C, Immediate8Tag]),
   (t: 4, entry: opRr[A, {}]),
   (t: 4, entry: opSuspend),         # 0x10
   (t: 12, entry: opLd[DE, Immediate16Tag]),
   (t: 8, entry: opLd[DE.indir, A]),
-  (t: 8, entry: opInc[DE, 1]),
-  (t: 4, entry: opInc[D, 1]),
-  (t: 4, entry: opInc[D, 0xff]),
+  (t: 8, entry: opAdd[DE, 1u16]),
+  (t: 4, entry: opAdd[D, 1u8]),
+  (t: 4, entry: opSub[D, 1u8]),
   (t: 8, entry: opLd[D, Immediate8Tag]),
   (t: 4, entry: opRl[A, {}]),
   (t: 12, entry: opJr),
-  (t: 8, entry: opAdd16[HL, DE]),
+  (t: 8, entry: opAdd[HL, DE]),
   (t: 8, entry: opLd[A, DE.indir]),
-  (t: 8, entry: opInc[DE, 0xffff]),
-  (t: 4, entry: opInc[E, 1]),
-  (t: 4, entry: opInc[E, 0xff]),
+  (t: 8, entry: opSub[DE, 1u8]),
+  (t: 4, entry: opAdd[E, 1u8]),
+  (t: 4, entry: opSub[E, 1u8]),
   (t: 8, entry: opLd[E, Immediate8Tag]),
   (t: 4, entry: opRr[A, {}]),
   (t: 8, entry: opJr),         # 0x20
   (t: 12, entry: opLd[HL, Immediate16Tag]),
   (t: 8, entry: opLd[Reg16Inc(HL).indir, A]),
-  (t: 8, entry: opInc[HL, 1]),
-  (t: 4, entry: opInc[Register8.H, 1]),
-  (t: 4, entry: opInc[Register8.H, 0xff]),
+  (t: 8, entry: opAdd[HL, 1u16]),
+  (t: 4, entry: opAdd[Register8.H, 1u8]),
+  (t: 4, entry: opSub[Register8.H, 1u8]),
   (t: 8, entry: opLd[Register8.H, Immediate8Tag]),
   (t: 4, entry: opDaa),
   (t: 8, entry: opJr),
-  (t: 8, entry: opAdd16[HL, HL]),
+  (t: 8, entry: opAdd[HL, HL]),
   (t: 8, entry: opLd[A, Reg16Inc(HL).indir]),
-  (t: 8, entry: opInc[HL, 0xffff]),
-  (t: 4, entry: opInc[L, 1]),
-  (t: 4, entry: opInc[L, 0xff]),
+  (t: 8, entry: opSub[HL, 1u8]),
+  (t: 4, entry: opAdd[L, 1u8]),
+  (t: 4, entry: opSub[L, 1u8]),
   (t: 8, entry: opLd[L, Immediate8Tag]),
   (t: 4, entry: opCpl),
   (t: 8, entry: opJr),         # 0x30
   (t: 12, entry: opLd[SP, Immediate16Tag]),
   (t: 8, entry: opLd[Reg16Dec(HL).indir, A]),
-  (t: 8, entry: opInc[SP, 1]),
-  (t: 12, entry: opInc[HL.indir, 1]),
-  (t: 12, entry: opInc[HL.indir, 0xff]),
+  (t: 8, entry: opAdd[SP, 1u16]),
+  (t: 12, entry: opAdd[HL.indir, 1u8]),
+  (t: 12, entry: opSub[HL.indir, 1u8]),
   (t: 8, entry: opLd[HL.indir, Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 8, entry: opJr),
-  (t: 8, entry: opAdd16[HL, SP]),
+  (t: 8, entry: opAdd[HL, SP]),
   (t: 8, entry: opLd[A, Reg16Dec(HL).indir]),
-  (t: 8, entry: opInc[SP, 0xffff]),
-  (t: 4, entry: opInc[A, 1]),
-  (t: 4, entry: opInc[A, 0xff]),
+  (t: 8, entry: opSub[SP, 1u8]),
+  (t: 4, entry: opAdd[A, 1u8]),
+  (t: 4, entry: opSub[A, 1u8]),
   (t: 8, entry: opLd[A, Immediate8Tag]),
   (t: 0, entry: opUnimpl),
   (t: 4, entry: opLd[B, B]),         # 0x40
@@ -1116,14 +1092,14 @@ const opcodes = [
   (t: 8, entry: opLd[A, L]),
   (t: 8, entry: opLd[A, HL.indir]),
   (t: 8, entry: opLd[A, A]),
-  (t: 4, entry: opAdd[A, B]),         # 0x80
-  (t: 4, entry: opAdd[A, Register8.C]),
-  (t: 4, entry: opAdd[A, D]),
-  (t: 4, entry: opAdd[A, E]),
-  (t: 4, entry: opAdd[A, Register8.H]),
-  (t: 4, entry: opAdd[A, L]),
-  (t: 8, entry: opAdd[A, HL.indir]),
-  (t: 4, entry: opAdd[A, A]),
+  (t: 4, entry: opAdd[A, WithCarry(B)]),         # 0x80
+  (t: 4, entry: opAdd[A, WithCarry(Register8.C)]),
+  (t: 4, entry: opAdd[A, WithCarry(D)]),
+  (t: 4, entry: opAdd[A, WithCarry(E)]),
+  (t: 4, entry: opAdd[A, WithCarry(Register8.H)]),
+  (t: 4, entry: opAdd[A, WithCarry(L)]),
+  (t: 8, entry: opAdd[A, WithCarry(HL.indir)]),
+  (t: 4, entry: opAdd[A, WithCarry(A)]),
   (t: 4, entry: opAdd[A, B]),
   (t: 4, entry: opAdd[A, Register8.C]),
   (t: 4, entry: opAdd[A, D]),
@@ -1132,22 +1108,22 @@ const opcodes = [
   (t: 4, entry: opAdd[A, L]),
   (t: 8, entry: opAdd[A, HL.indir]),
   (t: 4, entry: opAdd[A, A]),
-  (t: 4, entry: opAdd[A, B.inv]),         # 0x90
-  (t: 4, entry: opAdd[A, Register8.C.inv]),
-  (t: 4, entry: opAdd[A, D.inv]),
-  (t: 4, entry: opAdd[A, E.inv]),
-  (t: 4, entry: opAdd[A, Register8.H.inv]),
-  (t: 4, entry: opAdd[A, L.inv]),
-  (t: 8, entry: opAdd[A, HL.indir.inv]),
-  (t: 4, entry: opAdd[A, A.inv]),
-  (t: 4, entry: opAdd[A, B.inv]),
-  (t: 4, entry: opAdd[A, Register8.C.inv]),
-  (t: 4, entry: opAdd[A, D.inv]),
-  (t: 4, entry: opAdd[A, E.inv]),
-  (t: 4, entry: opAdd[A, Register8.H.inv]),
-  (t: 4, entry: opAdd[A, L.inv]),
-  (t: 8, entry: opAdd[A, HL.indir.inv]),
-  (t: 4, entry: opAdd[A, A.inv]),
+  (t: 4, entry: opSub[A, B]),         # 0x90
+  (t: 4, entry: opSub[A, Register8.C]),
+  (t: 4, entry: opSub[A, D]),
+  (t: 4, entry: opSub[A, E]),
+  (t: 4, entry: opSub[A, Register8.H]),
+  (t: 4, entry: opSub[A, L]),
+  (t: 8, entry: opSub[A, HL.indir]),
+  (t: 4, entry: opSub[A, A]),
+  (t: 4, entry: opSub[A, WithCarry(B)]),
+  (t: 4, entry: opSub[A, WithCarry(Register8.C)]),
+  (t: 4, entry: opSub[A, WithCarry(D)]),
+  (t: 4, entry: opSub[A, WithCarry(E)]),
+  (t: 4, entry: opSub[A, WithCarry(Register8.H)]),
+  (t: 4, entry: opSub[A, WithCarry(L)]),
+  (t: 8, entry: opSub[A, WithCarry(HL.indir)]),
+  (t: 4, entry: opSub[A, WithCarry(A)]),
   (t: 4, entry: opAnd[B]),        # 0xa0
   (t: 4, entry: opAnd[Register8.C]),
   (t: 4, entry: opAnd[D]),
@@ -1194,7 +1170,7 @@ const opcodes = [
   (t: 4, entry: prefixCb),
   (t: 12, entry: opCall[{Z}, false]),
   (t: 12, entry: opCall[{}, false]),
-  (t: 8, entry: opAdd[A, Immediate8Tag]),
+  (t: 8, entry: opAdd[A, WithCarry(Immediate8Tag)]),
   (t: 16, entry: opRst[0x08]),
   (t: 8, entry: opRet[{Flag.C}, true]),         # 0xd0
   (t: 12, entry: opPop[DE]),
@@ -1202,7 +1178,7 @@ const opcodes = [
   (t: 0, entry: opIllegal),
   (t: 12, entry: opCall[{Flag.C}, true]),
   (t: 16, entry: opPush[DE]),
-  (t: 8, entry: opAdd[A, Immediate8Tag.inv]),
+  (t: 8, entry: opSub[A, Immediate8Tag]),
   (t: 16, entry: opRst[0x10]),
   (t: 8, entry: opRet[{Flag.C}, false]),
   (t: 8, entry: opRet[{}, false]),
@@ -1210,7 +1186,7 @@ const opcodes = [
   (t: 0, entry: opIllegal),
   (t: 12, entry: opCall[{Flag.C}, false]),
   (t: 0, entry: opIllegal),
-  (t: 8, entry: opAdd[A, Immediate8Tag.inv]),
+  (t: 8, entry: opSub[A, WithCarry(Immediate8Tag)]),
   (t: 16, entry: opRst[0x18]),
   (t: 12, entry: opLd[(Address(0xff00), Immediate8Tag).indir, A]),       # 0xe0
   (t: 12, entry: opPop[HL]),
