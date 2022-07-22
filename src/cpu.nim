@@ -150,6 +150,8 @@ func `r=`*(self: Sm83; i: Register16; v: uint16) {.inline.} =
   self.r(i) = v
 
 func `+`(v1: uint16; v2: int8): uint16 {.inline.} = cast[uint16](int32(v1) + v2)
+func `+`(v1: uint32; v2: int8): int32 {.inline.} = int32(v1) + v2
+func `+`(v1: int32; v2: uint8): int32 {.inline.} = int32(v1) + v2
 func `+=`(v1: var uint16; v2: int8) {.inline.} = v1 = cast[uint16](int32(v1) + v2)
 
 func pc*(self: Sm83): var Address {.inline.} = self.r(PC)
@@ -200,6 +202,11 @@ proc setValue(i: Indir[(Address, Register8)]; cpu: Sm83; v: uint8) {.inline.} =
   cpu.mctrl[i.toT[0] + cpu.r(i.toT[1])] = v
 
 type
+  ImmediateS8 = distinct int8
+
+const ImmediateS8Tag = ImmediateS8(0)
+
+type
   Immediate8 = distinct uint8
 
 const Immediate8Tag = Immediate8(0)
@@ -221,6 +228,7 @@ type
     Indir
   AddrModes2 =
     Immediate8 |
+    ImmediateS8 |
     Immediate16 |
     Register8 |
     Register16 |
@@ -250,6 +258,8 @@ proc value(pair: Reg16Imme8; cpu: Sm83): uint16 {.inline.} =
       cpu.f.excl H
     cpu.f -= {Z, N}
   return uint16(r and 0xffff)
+
+proc value(_: ImmediateS8; cpu: Sm83): int8 {.inline.} = cast[int8](cpu.fetch())
 
 proc value(_: Immediate8; cpu: Sm83): uint8 {.inline.} = cpu.fetch()
 
@@ -292,6 +302,7 @@ proc setValue(i: Indir[(Address, Immediate8)]; cpu: Sm83; v: uint8) {.inline.} =
 proc `$`(pair: (Address, Immediate8)): string = &"{pair[0].hex}+u8"
 proc `$`(pair: (Address, Register8)): string = &"{pair[0].hex}+{pair[1]}"
 proc `$`(_: Immediate8): string = "u8"
+proc `$`(_: ImmediateS8): string = "i8"
 proc `$`(_: Immediate16): string = "u16"
 proc `$`(r: Reg16Inc): string = &"{Register16(r.ord)}+"
 proc `$`(r: Reg16Dec): string = &"{Register16(r.ord)}-"
@@ -585,6 +596,23 @@ proc opSub[T: static AddrModes; S: static AddrModes2](cpu: Sm83; opcode: uint8):
     when S isnot Const:
       cpu.f{C} = v1 < (v2 + c)
 
+func halfCarried(v1, v2, c: uint8): bool {.inline.} = ((v1 and 0xf) + (v2 and 0xf) + c).testBit(4)
+func halfCarried(v1, v2, c: uint16): bool {.inline.} = ((v1 and 0xfff) + (v2 and 0xfff) + c).testBit(12)
+func halfCarried(v1: uint16; v2: int8; _: uint8): bool {.inline.} =
+  let v1 = int16(v1 and 0xfff)
+  if v2 < 0:
+    v1 < (-v2)
+  else:
+    (v1 + v2).testBit(12)
+
+func carried(v: uint16): bool {.inline.} = v.testBit(8)
+func carried(v: uint32): bool {.inline.} = v.testBit(16)
+func carried(v: int32): bool {.inline.} =
+  if v >= 0:
+    uint32(v).testBit(16)
+  else:
+    true
+
 proc opAdd[T: static AddrModes; S: static AddrModes2](cpu: Sm83; opcode: uint8): int =
   #           8bit 16bit
   # add       Z0HC -0HC
@@ -604,14 +632,12 @@ proc opAdd[T: static AddrModes; S: static AddrModes2](cpu: Sm83; opcode: uint8):
   let r = v1.upgrade + v2 + S.carry(cpu)
   T.setValue(cpu, typeof(v1)(r))
   when T isnot Register16 or S isnot Const:
-    const s = sizeof(v1) * 4
-    const m = typeof(v1).high shr s
     cpu.f{N} = false
-    cpu.f{H} = 0 != ((v1 and m) + (v2 and m) + S.carry(cpu)) shr s
+    cpu.f{H} = halfCarried(v1, v2, S.carry(cpu))
     when T isnot Register16:
       cpu.f{Z} = typeof(v1)(r) == 0
     when S isnot Const:
-      cpu.f{C} = 0 != r shr (sizeof(v1) * 8)
+      cpu.f{C} = r.carried
 
 proc opAnd[S: static AddrModes2](cpu: Sm83; opcode: uint8): int =
   debug &"AND A,{S}"
@@ -1181,7 +1207,7 @@ const opcodes = [
   (t: 16, entry: opPush[HL]),
   (t: 8, entry: opAnd[Immediate8Tag]),
   (t: 16, entry: opRst[0x20]),
-  (t: 0, entry: opUnimpl),
+  (t: 0, entry: opAdd[SP, ImmediateS8Tag]),
   (t: 0, entry: opJp[HL, {}.Flags]), # t: 0 is not typo
   (t: 16, entry: opLd[Immediate16Tag.indir, A]),
   (t: 0, entry: opIllegal),
