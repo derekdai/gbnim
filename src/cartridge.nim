@@ -414,13 +414,15 @@ func validateChecksum*(self: Cartridge): bool =
 
   sum == self.header.globalChecksum
 
-proc newCartridge*(path: string): Cartridge =
-  result = Cartridge(data: loadFile(path))
+proc newCartridge*(data: seq[byte]): Cartridge =
+  result = Cartridge(data: data)
   echo &"Loading ROM: {path}"
   echo &"  Size: {result.data.len} bytes"
   echo &"  Logo is valid: {result.header.validateLogo}"
   echo &"  Header is valid: {result.header.validateChecksum}"
   echo &"  Header: {result.header}"
+
+proc newCartridge*(path: string): Cartridge = newCartridge(loadFile(path))
 
 func numRomBanks*(self: Cartridge): byte = byte(self.header.romSize div RomBankSize)
 
