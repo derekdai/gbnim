@@ -37,8 +37,8 @@ type
     H,
     N,
     Z,
-  Flags = set[Flag]
-  InvFlag {.size: sizeof(byte).} = distinct Flag
+  Flags* = set[Flag]
+  InvFlag* {.size: sizeof(byte).} = distinct Flag
   FlagTypes =
     Flag |
     InvFlag |
@@ -49,11 +49,11 @@ proc `+=`(self: var Flags; f: InvFlag) = self.excl Flag(f.ord)
 proc `-=`(self: var Flags; f: Flag) = self.excl f
 proc `-=`(self: var Flags; f: InvFlag) = self.incl Flag(f.ord)
 proc contains(self: Flags; f: InvFlag): bool = Flag(f.ord) notin self
-proc `{}=`(self: var Flags; f: Flag or InvFlag; v: bool) =
+proc `{}=`*(self: var Flags; f: Flag or InvFlag; v: bool) =
   if v: self += f else: self -= f
-proc `{}`(self: Flags; f: Flag or InvFlag): bool =
+proc `{}`*(self: Flags; f: Flag or InvFlag): bool =
   f in self
-proc `{}`(self: Flags; f: NilFlag): bool = true
+proc `{}`*(self: Flags; f: NilFlag): bool = true
 converter toBool(v: SomeInteger): bool =
   assert v in {0..1}
   cast[bool](v)
@@ -127,7 +127,7 @@ proc storeIf*(self: Sm83; a: Address; s: byte) =
   self.if = cast[InterruptFlags](s)
   info &"IF: {self.if}"
 
-proc newSm83*(freq: int): Sm83 =
+proc newSm83*(freq: int = 4_194_304): Sm83 =
   result = Sm83(freq: freq)
   Memory.init(result, IE)
 
@@ -147,13 +147,9 @@ converter toReg8Index(r: Register8): Reg8Index =
   lut[r.ord]
 
 func r*(self: Sm83; i: Register8): var byte {.inline.} = self.regs[i]
-func `r=`*(self: Sm83; i: Register8; v: byte) {.inline.} = self.r(i) = v
-func `r=`*(self: Sm83; i: Register8; v: int8) {.inline.} = self.r(i) = cast[byte](v)
 
 func r*(self: Sm83; i: Register16): var uint16 {.inline.} =
   cast[ptr uint16](addr self.regs[i.ord shl 1])[]
-func `r=`*(self: Sm83; i: Register16; v: uint16) {.inline.} =
-  self.r(i) = v
 
 func `+`(v1: uint16; v2: int8): uint16 {.inline.} = cast[uint16](int32(v1) + v2)
 func `+`(v1: uint32; v2: int8): int32 {.inline.} = int32(v1) + v2
@@ -206,6 +202,9 @@ proc value(i: Indir[(Address, Register8)]; cpu: Sm83): uint8 {.inline.} =
   cpu.mctrl[i.toT[0] + cpu.r(i.toT[1])]
 proc setValue(i: Indir[(Address, Register8)]; cpu: Sm83; v: uint8) {.inline.} =
   cpu.mctrl[i.toT[0] + cpu.r(i.toT[1])] = v
+
+proc setValue(f: Flag | InvFlag; cpu: Sm83; v: bool) {.inline.} = cpu.f{f} = v
+proc setValue(f: NilFlag; cpu: Sm83; v: bool) {.inline.} = discard
 
 type
   ImmediateS8 = distinct int8
@@ -432,22 +431,22 @@ proc opSwap[T: static AddrModes](cpu: Sm83; opcode: uint8): int =
   cpu.f = if v == 0: {Z} else: {}
   T.setValue(cpu, (v shl 4) or (v shr 4))
 
-proc opRl[T: static AddrModes; F: static Flags](cpu: Sm83; opcode: uint8): int =
+proc opRl[T: static AddrModes; F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
   var v = T.value(cpu)
   let b = v shr 7
   var r = v shl 1
   if opcode.testBit(4):
-    debug &"RL {T}"
+    debug &"RL {T}, {v:b}, {b:b}, {r:b}"
     r = r or byte(cpu.f{C})
   else:
     debug &"RLC {T}"
     r = r or b
   cpu.f = if b != 0: {Flag.C} else: {}
-  while Z in F.Flags:
-    cpu.f{Z} = r == 0
+  F.setValue(cpu, r == 0)
   T.setValue(cpu, v)
+  debug &"{T.value(cpu):b}"
 
-proc opRr[T: static AddrModes; F: static Flags](cpu: Sm83; opcode: uint8): int =
+proc opRr[T: static AddrModes; F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
   var v = T.value(cpu)
   let b = v shl 7
   var r = v shr 1
@@ -458,8 +457,7 @@ proc opRr[T: static AddrModes; F: static Flags](cpu: Sm83; opcode: uint8): int =
     debug &"RRC {T}"
     r = r or b
   cpu.f = if b != 0: {Flag.C} else: {}
-  while Z in F.Flags:
-    cpu.f{Z} = r == 0
+  F.setValue(cpu, r == 0)
   T.setValue(cpu, v)
 
 proc opDaa(cpu: Sm83; opcode: uint8): int =
@@ -628,38 +626,38 @@ proc opRst[N: static Address](cpu: Sm83; opcode: uint8): int =
   cpu.pc = N
 
 const cbOpcodes = [    
-  (t: 8, entry: opRl[B, {Z}]),
-  (t: 8, entry: opRl[Register8.C, {Z}]),
-  (t: 8, entry: opRl[D, {Z}]),
-  (t: 8, entry: opRl[E, {Z}]),
-  (t: 8, entry: opRl[Register8.H, {Z}]),
-  (t: 8, entry: opRl[L, {Z}]),
-  (t: 12, entry: opRl[HL.indir, {Z}]),
-  (t: 8, entry: opRl[A, {Z}]),
-  (t: 8, entry: opRr[B, {Z}]),
-  (t: 8, entry: opRr[Register8.C, {Z}]),
-  (t: 8, entry: opRr[D, {Z}]),
-  (t: 8, entry: opRr[E, {Z}]),
-  (t: 8, entry: opRr[Register8.H, {Z}]),
-  (t: 8, entry: opRr[L, {Z}]),
-  (t: 12, entry: opRr[HL.indir, {Z}]),
-  (t: 8, entry: opRr[A, {Z}]),
-  (t: 8, entry: opRl[B, {Z}]),         # 0x10
-  (t: 8, entry: opRl[Register8.C, {Z}]),
-  (t: 8, entry: opRl[D, {Z}]),
-  (t: 8, entry: opRl[E, {Z}]),
-  (t: 8, entry: opRl[Register8.H, {Z}]),
-  (t: 8, entry: opRl[L, {Z}]),
-  (t: 12, entry: opRl[HL.indir, {Z}]),
-  (t: 8, entry: opRl[A, {Z}]),
-  (t: 8, entry: opRr[B, {Z}]),
-  (t: 8, entry: opRr[Register8.C, {Z}]),
-  (t: 8, entry: opRr[D, {Z}]),
-  (t: 8, entry: opRr[E, {Z}]),
-  (t: 8, entry: opRr[Register8.H, {Z}]),
-  (t: 8, entry: opRr[L, {Z}]),
-  (t: 12, entry: opRr[HL.indir, {Z}]),
-  (t: 8, entry: opRr[A, {Z}]),
+  (t: 8, entry: opRl[B, Z]),
+  (t: 8, entry: opRl[Register8.C, Z]),
+  (t: 8, entry: opRl[D, Z]),
+  (t: 8, entry: opRl[E, Z]),
+  (t: 8, entry: opRl[Register8.H, Z]),
+  (t: 8, entry: opRl[L, Z]),
+  (t: 12, entry: opRl[HL.indir, Z]),
+  (t: 8, entry: opRl[A, Z]),
+  (t: 8, entry: opRr[B, Z]),
+  (t: 8, entry: opRr[Register8.C, Z]),
+  (t: 8, entry: opRr[D, Z]),
+  (t: 8, entry: opRr[E, Z]),
+  (t: 8, entry: opRr[Register8.H, Z]),
+  (t: 8, entry: opRr[L, Z]),
+  (t: 12, entry: opRr[HL.indir, Z]),
+  (t: 8, entry: opRr[A, Z]),
+  (t: 8, entry: opRl[B, Z]),         # 0x10
+  (t: 8, entry: opRl[Register8.C, Z]),
+  (t: 8, entry: opRl[D, Z]),
+  (t: 8, entry: opRl[E, Z]),
+  (t: 8, entry: opRl[Register8.H, Z]),
+  (t: 8, entry: opRl[L, Z]),
+  (t: 12, entry: opRl[HL.indir, Z]),
+  (t: 8, entry: opRl[A, Z]),
+  (t: 8, entry: opRr[B, Z]),
+  (t: 8, entry: opRr[Register8.C, Z]),
+  (t: 8, entry: opRr[D, Z]),
+  (t: 8, entry: opRr[E, Z]),
+  (t: 8, entry: opRr[Register8.H, Z]),
+  (t: 8, entry: opRr[L, Z]),
+  (t: 12, entry: opRr[HL.indir, Z]),
+  (t: 8, entry: opRr[A, Z]),
   (t: 4, entry: opSla[B]),         # 0x20
   (t: 4, entry: opSla[Register8.C]),
   (t: 4, entry: opSla[D]),
@@ -899,7 +897,7 @@ const opcodes = [
   (t: 4, entry: opAdd[B, 1u8]),
   (t: 4, entry: opSub[B, 1u8]),
   (t: 8, entry: opLd[B, Immediate8Tag]),
-  (t: 4, entry: opRl[A, {}]),
+  (t: 4, entry: opRl[A, NilFlagTag]),
   (t: 20, entry: opLd[Immediate16Tag.indir, SP]),
   (t: 8, entry: opAdd[HL, BC]),
   (t: 8, entry: opLd[A, BC.indir]),
@@ -907,7 +905,7 @@ const opcodes = [
   (t: 4, entry: opAdd[Register8.C, 1u8]),
   (t: 4, entry: opSub[Register8.C, 1u8]),
   (t: 8, entry: opLd[Register8.C, Immediate8Tag]),
-  (t: 4, entry: opRr[A, {}]),
+  (t: 4, entry: opRr[A, NilFlagTag]),
   (t: 4, entry: opSuspend),         # 0x10
   (t: 12, entry: opLd[DE, Immediate16Tag]),
   (t: 8, entry: opLd[DE.indir, A]),
@@ -915,7 +913,7 @@ const opcodes = [
   (t: 4, entry: opAdd[D, 1u8]),
   (t: 4, entry: opSub[D, 1u8]),
   (t: 8, entry: opLd[D, Immediate8Tag]),
-  (t: 4, entry: opRl[A, {}]),
+  (t: 4, entry: opRl[A, NilFlagTag]),
   (t: 8, entry: opJr[ImmediateS8Tag, NilFlagTag]),
   (t: 8, entry: opAdd[HL, DE]),
   (t: 8, entry: opLd[A, DE.indir]),
@@ -923,7 +921,7 @@ const opcodes = [
   (t: 4, entry: opAdd[E, 1u8]),
   (t: 4, entry: opSub[E, 1u8]),
   (t: 8, entry: opLd[E, Immediate8Tag]),
-  (t: 4, entry: opRr[A, {}]),
+  (t: 4, entry: opRr[A, NilFlagTag]),
   (t: 8, entry: opJr[ImmediateS8Tag, NZ]),         # 0x20
   (t: 12, entry: opLd[HL, Immediate16Tag]),
   (t: 8, entry: opLd[Reg16Inc(HL).indir, A]),
@@ -1020,15 +1018,7 @@ const opcodes = [
   (t: 8, entry: opLd[A, L]),
   (t: 8, entry: opLd[A, HL.indir]),
   (t: 8, entry: opLd[A, A]),
-  (t: 4, entry: opAdd[A, WithCarry(B)]),         # 0x80
-  (t: 4, entry: opAdd[A, WithCarry(Register8.C)]),
-  (t: 4, entry: opAdd[A, WithCarry(D)]),
-  (t: 4, entry: opAdd[A, WithCarry(E)]),
-  (t: 4, entry: opAdd[A, WithCarry(Register8.H)]),
-  (t: 4, entry: opAdd[A, WithCarry(L)]),
-  (t: 8, entry: opAdd[A, WithCarry(HL.indir)]),
-  (t: 4, entry: opAdd[A, WithCarry(A)]),
-  (t: 4, entry: opAdd[A, B]),
+  (t: 4, entry: opAdd[A, B]),         # 0x80
   (t: 4, entry: opAdd[A, Register8.C]),
   (t: 4, entry: opAdd[A, D]),
   (t: 4, entry: opAdd[A, E]),
@@ -1036,6 +1026,14 @@ const opcodes = [
   (t: 4, entry: opAdd[A, L]),
   (t: 8, entry: opAdd[A, HL.indir]),
   (t: 4, entry: opAdd[A, A]),
+  (t: 4, entry: opAdd[A, WithCarry(B)]),
+  (t: 4, entry: opAdd[A, WithCarry(Register8.C)]),
+  (t: 4, entry: opAdd[A, WithCarry(D)]),
+  (t: 4, entry: opAdd[A, WithCarry(E)]),
+  (t: 4, entry: opAdd[A, WithCarry(Register8.H)]),
+  (t: 4, entry: opAdd[A, WithCarry(L)]),
+  (t: 8, entry: opAdd[A, WithCarry(HL.indir)]),
+  (t: 4, entry: opAdd[A, WithCarry(A)]),
   (t: 4, entry: opSub[A, B]),         # 0x90
   (t: 4, entry: opSub[A, Register8.C]),
   (t: 4, entry: opSub[A, D]),
