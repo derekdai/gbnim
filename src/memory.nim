@@ -135,6 +135,8 @@ type
 func initRom*(self: Rom; region: MemoryRegion; data: sink seq[byte]) =
   Memory.init(self, region)
   self.data = data
+  if data.len < region.len:
+    data.setLen(region.len)
 
 proc newRom*(region: MemoryRegion; data: sink seq[byte]): Rom =
   result = Rom()
