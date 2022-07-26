@@ -491,3 +491,24 @@ block:
   assert cpu.r(A) == 0b01010101
   assert cpu.f == {Flag.H}
 
+block:
+  let ops = gbasm:
+    OR A,A                  # 1
+    LD B,1                  # 2
+    OR A,B
+    LD C,0b10101010         # 3
+    XOR A,A
+    OR A,C
+
+  let cpu = newCpu(ops)
+  cpu.step                  # 1
+  assert cpu.r(A) == 0
+  assert cpu.f == {Z}
+  cpu.step 2                # 2
+  assert cpu.r(A) == 1
+  assert cpu.f == {}
+  cpu.step 3                # 3
+  assert cpu.r(C) == 0b10101010
+  assert cpu.r(A) == cpu.r(C)
+  assert cpu.f == {}
+
