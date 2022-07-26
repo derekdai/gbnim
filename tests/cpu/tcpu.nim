@@ -1,4 +1,4 @@
-import std/[logging]
+import std/[strformat, strutils]
 import gbasm
 import cpu
 import memory
@@ -16,6 +16,14 @@ proc newCpu(opcodes: seq[byte]): Sm83 =
 proc step(self: Sm83; n: int) =
   for i in 0..<n:
     self.step()
+
+proc dump[T: SomeInteger](self: openArray[T]): string =
+  result = "["
+  for v in self:
+    result.add &"0x{v:x}, "
+  if result.endsWith(", "):
+    result.setLen(result.len - 2)
+  result.add "]"
 
 block:
   let cpu = newSm83()
