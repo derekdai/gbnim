@@ -374,3 +374,27 @@ block:
   cpu.step(3)
   assert cpu.r(A) == 0x00
   assert cpu.f == {Flag.C, Flag.H, Z}
+
+block:
+  let ops = gbasm:
+    INC A                   # 1
+    JR NZ,-3
+    LD A,0xf                # 2
+    INC A
+  let cpu = newCpu(ops)
+  cpu.step()                # 1
+  assert cpu.r(A) == 1
+  assert cpu.f == {}
+  while true:
+    cpu.step()
+    if cpu.pc > 2:
+      break
+    cpu.step()
+    if cpu.f{Flag.H}:
+      assert (cpu.r(A) and 0xf) == 0
+  assert cpu.r(A) == 0
+  assert cpu.f == {Flag.H, Z}
+  cpu.step 2                # 2
+  assert cpu.r(A) == 0x10
+  assert cpu.f == {Flag.H}
+
