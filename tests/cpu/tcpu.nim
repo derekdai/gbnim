@@ -123,20 +123,27 @@ block:
 block:
   let ops = gbasm:
     NOP
+    NOP
   let cpu = newCpu(ops)
   cpu.step()
   assert cpu.ticks == 4
   assert cpu.pc == 1
-
-block:
-  let ops = gbasm:
-    NOP
-    NOP
-  let cpu = newCpu(ops)
-  cpu.step()
+  assert cpu.f == {}
   cpu.step()
   assert cpu.ticks == 8
   assert cpu.pc == 2
+  assert cpu.f == {}
+
+block:
+  let ops = gbasm:
+    EI                    # 1
+    DI                    # 2
+  let cpu = newCpu(ops)
+  assert cpu.ime == false
+  cpu.step
+  assert cpu.ime == true
+  cpu.step
+  assert cpu.ime == false
 
 block:
   let ops = gbasm:
