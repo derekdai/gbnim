@@ -3,6 +3,51 @@ import gbasm
 import cpu
 import memory
 
+#[
+v NOP
+v LD
+v INC
+v DEC
+v RLCA
+v ADD
+v DEC
+v RRCA
+v STOP
+v RLA
+v JR
+v RRA
+v ADC
+v SUB
+v SBC
+v AND
+v XOR
+v OR
+v JP
+v RLC
+v RRC
+v RL
+v RR
+v DI
+v EI
+v CP
+  DAA
+  CPL
+  SCF
+  CCF
+  RET
+  POP
+  PUSH
+  RST
+  CALL
+  SLA
+  SRA
+  SWAP
+  SRL
+  BIT
+  RES
+  SET
+]#
+
 proc newCpu(opcodes: seq[byte]): Sm83 =
   result = newSm83()
   result.memCtrl = newMemoryCtrl()
@@ -715,3 +760,23 @@ block:
   assert cpu.f == {N, C, H}
   cpu.step 4              # 6
   assert cpu.f == {Z, N}
+
+block:
+  let ops = gbasm:
+    LD SP,0xcfff          # 1
+    LD BC,0x8800
+    PUSH BC
+    POP HL
+    ADD HL,BC
+    PUSH BC               # 2
+    POP AF
+  let cpu = newCpu(ops)
+  cpu.step 3              # 1
+  assert cpu.r(SP) == 0xcfff - 2
+  cpu.step
+  assert cpu.r(SP) == 0xcfff
+  cpu.step
+  assert cpu.f == {Flag.C, H}
+  cpu.step 2              # 2
+  assert cpu.r(A) == 0x88
+  assert cpu.f == {}
