@@ -111,6 +111,9 @@ block:
   assert cpu.r(E) == 0x7c
   assert cpu.r(HL) == 0xc321
   assert cpu[0xc321] == 0x7c
+
+block:
+  let ops = gbasm:
     NOP
   let cpu = newCpu(ops)
   cpu.step()
