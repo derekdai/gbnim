@@ -585,18 +585,12 @@ proc opOr[S: static AddrModes2](cpu: Sm83; opcode: uint8): int =
 
 proc opCp[S: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"CP A,{S}"
-  let v = value(S, cpu)
-  let vl = v and 0b1111
-  let a = cpu.r(A)
-  let al = a and 0b1111
-  cpu.f =
-    if a == v: {N, Z}
-    elif a > v:
-      if al >= vl: {N}
-      else: {N, H}
-    else:
-      if al >= vl: {N, C}
-      else: {N, H, C}
+  let v1 = cpu.r(A)
+  let v2 = S.value(cpu)
+  cpu.f = {N}
+  cpu.f{C} = v1 < v2
+  cpu.f{H} = (v1 and 0xf) < (v2 and 0xf)
+  cpu.f{Z} = v1 == v2
 
 proc opIme(cpu: Sm83; opcode: uint8): int =
   cpu.flags{cfIme} =
