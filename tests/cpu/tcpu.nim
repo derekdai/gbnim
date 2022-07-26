@@ -467,3 +467,27 @@ block:
   assert cpu.r(C) == 0
   assert cpu.f == {N, Z}
 
+block:
+  let ops = gbasm:
+    AND A,A                 # 1
+    LD B,1                  # 2
+    AND A,B
+    LD A,0b10101010         # 3
+    AND A,0b01010101
+    LD A,0b11111111         # 4
+    AND A,0b01010101
+
+  let cpu = newCpu(ops)
+  cpu.step                  # 1
+  assert cpu.r(A) == 0
+  assert cpu.f == {Z, H}
+  cpu.step 2                # 2
+  assert cpu.r(A) == 0
+  assert cpu.f == {Z, H}
+  cpu.step 2                # 3
+  assert cpu.r(A) == 0
+  assert cpu.f == {Z, H}
+  cpu.step 2                # 4
+  assert cpu.r(A) == 0b01010101
+  assert cpu.f == {Flag.H}
+
