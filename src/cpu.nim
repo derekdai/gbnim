@@ -131,6 +131,8 @@ proc newSm83*(freq: int = 4_194_304): Sm83 =
   result = Sm83(freq: freq)
   Memory.init(result, IE)
 
+proc `[]`*(self: Sm83; a: Address): byte = self.mctrl[a]
+
 func freq*(self: Sm83): int = self.freq
 
 func ticks*(self: Sm83): int = self.ticks
