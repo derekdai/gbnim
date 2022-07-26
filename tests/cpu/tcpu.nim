@@ -449,3 +449,21 @@ block:
   assert cpu.r(A) == 0xef
   assert cpu.f == {N, H}
 
+block:
+  let ops = gbasm:
+    DEC A                   # 1
+    LD B,0x10               # 2
+    DEC B
+    LD C,1                  # 3
+    DEC C
+  let cpu = newCpu(ops)
+  cpu.step                  # 1
+  assert cpu.r(A) == 0xff
+  assert cpu.f == {N, H}
+  cpu.step 2                # 2
+  assert cpu.r(B) == 0xf
+  assert cpu.f == {N, H}
+  cpu.step 2                # 3
+  assert cpu.r(C) == 0
+  assert cpu.f == {N, Z}
+
