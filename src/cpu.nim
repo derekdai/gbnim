@@ -450,17 +450,18 @@ proc opRl[T: static AddrModes; F: static FlagTypes](cpu: Sm83; opcode: uint8): i
 
 proc opRr[T: static AddrModes; F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
   var v = T.value(cpu)
-  let b = v shl 7
+  let b = v and 1
   var r = v shr 1
   if opcode.testBit(4):
     debug &"RR {T}"
     r = r or (byte(cpu.f{C}) shl 7)
   else:
     debug &"RRC {T}"
-    r = r or b
+    r = r or (b shl 7)
+  debug &"=== {r:b}"
   cpu.f = if b != 0: {Flag.C} else: {}
   F.setValue(cpu, r == 0)
-  T.setValue(cpu, v)
+  T.setValue(cpu, r)
 
 proc opDaa(cpu: Sm83; opcode: uint8): int =
   # `daa` 是在兩個 BCD `add`/`sub` 之後對結果進行 normalize 用

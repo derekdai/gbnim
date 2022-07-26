@@ -590,3 +590,91 @@ block:
   cpu.step  
   assert cpu.r(L) == 0b1100_0001
   assert cpu.f == {Flag.C}
+
+block:
+  let ops = gbasm:
+    RRCA                    # 1
+    RRA                     # 2
+    RRC D                   # 3
+    RR E                    # 4
+    RRCA                    # 5
+    RRA                     # 6
+    RRC D                   # 7
+    RR E                    # 8
+    LD A,1                  # 9
+    RRCA
+    LD A,1                  # 10
+    RRA
+    LD D,1                  # 11
+    RRC D
+    LD E,1                  # 12
+    RR E
+    LD A,1                  # 13
+    RRCA
+    LD A,1                  # 14
+    RRA
+    LD D,1                  # 15
+    RRC D
+    LD E,1                  # 16
+    RR E
+  let cpu = newCpu(ops)
+  cpu.step                  # 1
+  assert cpu.r(A) == 0
+  assert cpu.f == {}
+  cpu.step                  # 2
+  assert cpu.r(A) == 0
+  assert cpu.f == {}
+  cpu.step                  # 3
+  assert cpu.r(D) == 0
+  assert cpu.f == {Z}
+  cpu.step                  # 4
+  assert cpu.r(E) == 0
+  assert cpu.f == {Z}
+  cpu.f{C} = true           # 5
+  cpu.step
+  assert cpu.r(A) == 0
+  assert cpu.f == {}
+  cpu.f{C} = true           # 6
+  cpu.step
+  assert cpu.r(A) == 0b1000_0000
+  assert cpu.f == {}
+  cpu.f{C} = true           # 7
+  cpu.step
+  assert cpu.r(D) == 0
+  assert cpu.f == {Z}
+  cpu.f{C} = true           # 8
+  cpu.step
+  assert cpu.r(E) == 0b1000_0000
+  assert cpu.f == {}
+  cpu.f{C} = false          # 9
+  cpu.step 2
+  assert cpu.r(A) == 0b1000_0000
+  assert cpu.f == {Flag.C}
+  cpu.f{C} = false          # 10
+  cpu.step 2
+  assert cpu.r(A) == 0b0000_0000
+  assert cpu.f == {Flag.C}
+  cpu.f{C} = false          # 11
+  cpu.step 2
+  assert cpu.r(D) == 0b1000_0000
+  assert cpu.f == {Flag.C}
+  cpu.f{C} = false          # 12
+  cpu.step 2
+  assert cpu.r(E) == 0b0000_0000
+  assert cpu.f == {Z, C}
+  cpu.f{C} = true          # 13
+  cpu.step 2
+  assert cpu.r(A) == 0b1000_0000
+  assert cpu.f == {Flag.C}
+  cpu.f{C} = true          # 14
+  cpu.step 2
+  assert cpu.r(A) == 0b1000_0000
+  assert cpu.f == {Flag.C}
+  cpu.f{C} = true          # 15
+  cpu.step 2
+  assert cpu.r(D) == 0b1000_0000
+  assert cpu.f == {Flag.C}
+  cpu.f{C} = true          # 16
+  cpu.step 2
+  assert cpu.r(E) == 0b1000_0000
+  assert cpu.f == {Flag.C}
