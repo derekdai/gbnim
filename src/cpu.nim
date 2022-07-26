@@ -438,14 +438,14 @@ proc opRl[T: static AddrModes; F: static FlagTypes](cpu: Sm83; opcode: uint8): i
   let b = v shr 7
   var r = v shl 1
   if opcode.testBit(4):
-    debug &"RL {T}, {v:b}, {b:b}, {r:b}"
+    debug &"RL {T}"
     r = r or byte(cpu.f{C})
   else:
     debug &"RLC {T}"
     r = r or b
   cpu.f = if b != 0: {Flag.C} else: {}
   F.setValue(cpu, r == 0)
-  T.setValue(cpu, v)
+  T.setValue(cpu, r)
   debug &"{T.value(cpu):b}"
 
 proc opRr[T: static AddrModes; F: static FlagTypes](cpu: Sm83; opcode: uint8): int =

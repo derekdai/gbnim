@@ -532,3 +532,61 @@ block:
   cpu.step                  # 4
   assert cpu.r(A) == 0b11110000
   assert cpu.f == {}
+
+block:
+  let ops = gbasm:
+    RLCA                    # 1
+    LD A,0b1000_0001        # 2
+    RLCA 
+    RLCA                    # 3
+    RLA                     # 4
+    RLA                     # 5
+    RLC L                   # 6
+    LD D,0xf                # 7
+    RLC D
+    RLC D                   # 8
+    LD HL,0xc000            # 9
+    LD (HL),0xf0
+    RLC (HL)
+    LD L,0x70               # 10
+    RL L
+    RL L                    # 11
+  let cpu = newCpu(ops)
+  cpu.step                  # 1
+  assert cpu.r(A) == 0
+  assert cpu.f == {}
+  cpu.step 2                # 2
+  assert cpu.r(A) == 0b0000_0011
+  assert cpu.f == {Flag.C}
+  cpu.step                  # 3
+  assert cpu.r(A) == 0b0000_0110
+  assert cpu.f == {}
+  cpu.step                  # 4
+  assert cpu.r(A) == 0b0000_1100
+  assert cpu.f == {}
+  cpu.f{C} = true
+  cpu.step                  # 5
+  assert cpu.r(A) == 0b0001_1001
+  assert cpu.f == {}
+  cpu.step                  # 6
+  assert cpu.r(L) == 0
+  assert cpu.f == {Z}
+  cpu.step 2                # 7
+  assert cpu.r(D) == 0b0001_1110
+  assert cpu.f == {}
+  cpu.f{C} = true           # 8
+  cpu.step
+  assert cpu.r(D) == 0b0011_1100
+  assert cpu.f == {}
+  cpu.f{C} = true           # 9
+  cpu.step 3
+  assert cpu[0xc000] == 0b1110_0001
+  assert cpu.f == {Flag.C}
+  cpu.f{C} = false          # 10
+  cpu.step 2
+  assert cpu.r(L) == 0b1110_0000
+  assert cpu.f == {}
+  cpu.f{C} = true           # 11
+  cpu.step  
+  assert cpu.r(L) == 0b1100_0001
+  assert cpu.f == {Flag.C}
