@@ -399,10 +399,6 @@ proc opCall[F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
     cpu.push cpu.pc
     cpu.pc = a
 
-proc opCbUnimpl(cpu: Sm83; opcode: uint8): int =
-  fatal &"opcode 0xcb{opcode:02x} is not implemented yet"
-  quit(1)
-
 proc opBit[B: static BitsRange[uint8]; S: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"BIT {B},{S}"
   let v = S.value(cpu)
@@ -954,7 +950,7 @@ const opcodes = [
   (t: 12, entry: opAdd[HL.indir, 1u8]),
   (t: 12, entry: opSub[HL.indir, 1u8]),
   (t: 8, entry: opLd[HL.indir, Immediate8Tag]),
-  (t: 0, entry: opScf),
+  (t: 4, entry: opScf),
   (t: 8, entry: opJr[ImmediateS8Tag, Flag.C]),
   (t: 8, entry: opAdd[HL, SP]),
   (t: 8, entry: opLd[A, Reg16Dec(HL).indir]),
@@ -962,7 +958,7 @@ const opcodes = [
   (t: 4, entry: opAdd[A, 1u8]),
   (t: 4, entry: opSub[A, 1u8]),
   (t: 8, entry: opLd[A, Immediate8Tag]),
-  (t: 0, entry: opCcf),
+  (t: 4, entry: opCcf),
   (t: 4, entry: opLd[B, B]),         # 0x40
   (t: 4, entry: opLd[B, Register8.C]),
   (t: 4, entry: opLd[B, D]),
@@ -1131,7 +1127,7 @@ const opcodes = [
   (t: 16, entry: opPush[HL]),
   (t: 8, entry: opAnd[Immediate8Tag]),
   (t: 16, entry: opRst[0x20]),
-  (t: 0, entry: opAdd[SP, ImmediateS8Tag]),
+  (t: 16, entry: opAdd[SP, ImmediateS8Tag]),
   (t: 0, entry: opJp[HL, NilFlagTag]), # t: 0 is not typo
   (t: 16, entry: opLd[Immediate16Tag.indir, A]),
   (t: 0, entry: opIllegal),
