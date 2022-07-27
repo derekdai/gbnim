@@ -615,11 +615,11 @@ proc opSra[T: static AddrModes](cpu: Sm83; opcode: uint8): int =
 
 proc opSrl[T: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"SRL {T}"
-  var v = T.value(cpu)
+  let v = T.value(cpu)
   cpu.f{C} = v.testBit(0)
-  v = v shr 1
-  cpu.f{Z} = v == 0
-  T.setValue(cpu, v)
+  let r = v shr 1
+  cpu.f{Z} = r == 0
+  T.setValue(cpu, r)
 
 proc opSla[T: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"SLA {T}"
