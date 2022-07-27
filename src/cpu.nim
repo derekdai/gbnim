@@ -341,10 +341,6 @@ func `ime=`*(self: Sm83; v: bool) {.inline.} =
   else:
     self.flags.excl cfIme
 
-proc opUnimpl(cpu: Sm83; opcode: uint8): int =
-  fatal &"opcode {opcode.hex} not implemented yet"
-  quit(1)
-
 proc opIllegal(cpu: Sm83; opcode: uint8): int =
   error &"illegal opcode {opcode.hex}"
 
@@ -490,6 +486,14 @@ proc opDaa(cpu: Sm83; opcode: uint8): int =
     cpu.r(A) = byte(r and 0xff)
   cpu.f -= H
   cpu.f{Z} = cpu.r(A) == 0
+
+proc opScf(cpu: Sm83; opcode: uint8): int =
+  debug "SCF"
+  cpu.f{C} = true
+
+proc opCcf(cpu: Sm83; opcode: uint8): int =
+  debug "CCF"
+  cpu.f{C} = not cpu.f{C}
 
 proc opSub[T: static AddrModes; S: static AddrModes2](cpu: Sm83; opcode: uint8): int =
   #           8bit 16bit
@@ -942,7 +946,7 @@ const opcodes = [
   (t: 12, entry: opAdd[HL.indir, 1u8]),
   (t: 12, entry: opSub[HL.indir, 1u8]),
   (t: 8, entry: opLd[HL.indir, Immediate8Tag]),
-  (t: 0, entry: opUnimpl),
+  (t: 0, entry: opScf),
   (t: 8, entry: opJr[ImmediateS8Tag, Flag.C]),
   (t: 8, entry: opAdd[HL, SP]),
   (t: 8, entry: opLd[A, Reg16Dec(HL).indir]),
@@ -950,7 +954,7 @@ const opcodes = [
   (t: 4, entry: opAdd[A, 1u8]),
   (t: 4, entry: opSub[A, 1u8]),
   (t: 8, entry: opLd[A, Immediate8Tag]),
-  (t: 0, entry: opUnimpl),
+  (t: 0, entry: opCcf),
   (t: 4, entry: opLd[B, B]),         # 0x40
   (t: 4, entry: opLd[B, Register8.C]),
   (t: 4, entry: opLd[B, D]),

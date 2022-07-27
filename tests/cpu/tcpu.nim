@@ -34,10 +34,10 @@ v POP
 v PUSH
 v CALL
 v RET
+v CPL
+v SCF
+v CCF
   DAA
-  CPL
-  SCF
-  CCF
   RST
   SLA
   SRA
@@ -826,3 +826,33 @@ block:
   cpu.step
   assert cpu.pc == 50
   assert cpu.r(SP) == 0xcff5
+
+block:
+  let ops = gbasm:
+    CPL                   # 1
+    LD A,0b1010_1010      # 1
+    CPL
+  let cpu = newCpu(ops)
+  cpu.step                # 1
+  assert cpu.r(A) == 0xff
+  assert cpu.f == {N,H}
+  cpu.step 2              # 2
+  assert cpu.r(A) == 0b0101_0101
+  assert cpu.f == {N,H}
+
+block:
+  let ops = gbasm:
+    SCF                   # 1
+    CCF                   # 2
+    CCF                   # 3
+    SCF                   # 4
+  let cpu = newCpu(ops)
+  assert cpu.f == {}
+  cpu.step                # 1
+  assert cpu.f == {Flag.C}
+  cpu.step                # 2
+  assert cpu.f == {}
+  cpu.step                # 3
+  assert cpu.f == {Flag.C}
+  cpu.step                # 4
+  assert cpu.f == {Flag.C}
