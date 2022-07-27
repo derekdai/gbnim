@@ -605,6 +605,14 @@ proc opIme(cpu: Sm83; opcode: uint8): int =
       debug "EI"
       true
 
+proc opSra[T: static AddrModes](cpu: Sm83; opcode: uint8): int =
+  debug &"SRA {T}"
+  let v = T.value(cpu)
+  cpu.f{C} = v.testBit(0)
+  let r = (v shr 1) or (v and 0b1000_0000)
+  cpu.f{Z} = r == 0
+  T.setValue(cpu, r)
+
 proc opSrl[T: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"SRL {T}"
   var v = T.value(cpu)
@@ -667,14 +675,14 @@ const cbOpcodes = [
   (t: 4, entry: opSla[L]),
   (t: 12, entry: opSla[HL.indir]),
   (t: 4, entry: opSla[A]),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
-  (t: 0, entry: opCbUnimpl),
+  (t: 4, entry: opSra[B]),
+  (t: 4, entry: opSra[Register8.C]),
+  (t: 4, entry: opSra[D]),
+  (t: 4, entry: opSra[E]),
+  (t: 4, entry: opSra[Register8.H]),
+  (t: 4, entry: opSra[L]),
+  (t: 12, entry: opSra[HL.indir]),
+  (t: 4, entry: opSra[A]),
   (t: 4, entry: opSwap[B]),         # 0x30
   (t: 4, entry: opSwap[Register8.C]),
   (t: 4, entry: opSwap[D]),
