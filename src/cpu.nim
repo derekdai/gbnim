@@ -408,7 +408,7 @@ proc opBit[B: static BitsRange[uint8]; S: static AddrModes](cpu: Sm83; opcode: u
   let v = S.value(cpu)
   cpu.f -= N
   cpu.f += H
-  cpu.f{Z} = v.testBit(B)
+  cpu.f{Z} = not v.testBit(B)
 
 proc opRes[B: static BitsRange[uint8]; S: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"RES {B},{S}"
