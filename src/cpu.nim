@@ -403,18 +403,18 @@ proc opCbUnimpl(cpu: Sm83; opcode: uint8): int =
   fatal &"opcode 0xcb{opcode:02x} is not implemented yet"
   quit(1)
 
-proc opBit[B: static uint8; S: static AddrModes](cpu: Sm83; opcode: uint8): int =
+proc opBit[B: static BitsRange[uint8]; S: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"BIT {B},{S}"
   let v = S.value(cpu)
   cpu.f -= N
   cpu.f += H
   cpu.f{Z} = v.testBit(B)
 
-proc opRes[B: static uint8; S: static AddrModes](cpu: Sm83; opcode: uint8): int =
+proc opRes[B: static BitsRange[uint8]; S: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"RES {B},{S}"
   S.setValue(cpu, S.value(cpu) and (1u8 shl B).bitnot)
 
-proc opSet[B: static uint8; S: static AddrModes](cpu: Sm83; opcode: uint8): int =
+proc opSet[B: static BitsRange[uint8]; S: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"SET {B},{S}"
   S.setValue(cpu, S.value(cpu) or (1 shl B))
 
