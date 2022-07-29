@@ -197,12 +197,12 @@ proc storeObp1(self: Ppu; s: byte) =
   self.obp1 = cast[BgPalette](s)
   info &"OBP1: {self.bgp}"
 
-proc loadScy(self: Ppu): byte = self.scx
+proc loadScy(self: Ppu): byte = self.scy
 proc storeScy(self: Ppu; s: byte) =
   self.scy = s
   info &"SCY: {self.scy}"
 
-proc loadScx(self: Ppu): byte = self.scy
+proc loadScx(self: Ppu): byte = self.scx
 proc storeScx(self: Ppu; s: byte) =
   self.scx = s
   info &"SCX: {self.scx}"
