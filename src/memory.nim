@@ -70,11 +70,11 @@ func unmap*(self: MemoryCtrl; region: MemoryRegion) =
 
 proc enableBootRom*(self: MemoryCtrl) {.inline.} =
   self.map(self.bootrom)
-  debug "Boot ROM mapped"
+  info "Boot ROM mapped"
 
 proc disableBootRom*(self: MemoryCtrl) {.inline.} =
   self.unmap(BOOTROM)
-  debug "Boot ROM unmapped"
+  info "Boot ROM unmapped"
 
 when not declared(getBacktrace):
   func getBacktrace*(): string {.inline.} = discard
