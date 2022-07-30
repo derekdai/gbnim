@@ -200,21 +200,25 @@ proc storeObp1(self: Ppu; s: byte) =
 proc loadScy(self: Ppu): byte = self.scy
 proc storeScy(self: Ppu; s: byte) =
   self.scy = s
+  self.flags += Refresh
   info &"SCY: {self.scy}"
 
 proc loadScx(self: Ppu): byte = self.scx
 proc storeScx(self: Ppu; s: byte) =
   self.scx = s
+  self.flags += Refresh
   info &"SCX: {self.scx}"
 
 proc loadWy(self: Ppu): byte = self.wy
 proc storeWy(self: Ppu; s: byte) =
   self.wy = s
+  self.flags += Refresh
   info &"WY: {self.wy}"
 
 proc loadWx(self: Ppu): byte = self.wx
 proc storeWx(self: Ppu; s: byte) =
   self.wx = s
+  self.flags += Refresh
   info &"WX: {self.wx}"
 
 func lcdEnabled(self: Ppu): bool {.inline.} = self.lcdc.lcdEnable
@@ -446,11 +450,13 @@ proc updateMainView(self: Ppu) =
     return
 
   self.rend.setRenderTarget(self.main).errQuit
-  let srcRect = Rect(x: self.scx.int32, y: self.scy.int32, w: 160, h: 144)
-  self.rend.renderCopy(self.bgMap, unsafeAddr srcRect, unsafeAddr DispRes).errQuit
+  let srcRect = Rect(x: self.scx.int32, y: self.scy.int32, w: 256, h: 256)
+  let destRect = Rect(x: 0, y: 0, w: 256, h: 256)
+  self.rend.renderCopy(self.bgMap, unsafeAddr srcRect, unsafeAddr destRect).errQuit
 
 proc stepLy(self: Ppu; cpu: Sm83) =
   self.ly.inc
+  self.stat.concidence = self.ly == self.lyc
   if self.ly < 144:
     self.stat.mode = lmReadOam
   elif self.ly == 144:
@@ -495,7 +501,7 @@ proc process*(self: Ppu; cpu: Sm83; ticks: Tick) =
     of lmReadOam: self.processReadOamMode()
     of lmTrans: self.processTransMode()
 
-  if Refresh in self.flags:
+  if self.flags{Refresh}:
     self.updateTileMapView()
     self.updateMainView()
 
