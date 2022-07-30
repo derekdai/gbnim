@@ -7,7 +7,6 @@ import memory
 v NOP
 v LD
 v INC
-v DEC
 v RLCA
 v ADD
 v DEC
