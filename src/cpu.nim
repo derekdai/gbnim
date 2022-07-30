@@ -2,7 +2,7 @@ import memory, setsugar, types, utils
 import std/[bitops, logging, strformat]
 
 const
-  Clock* = 4194304u
+  Clock* = 4194304
   MCycles* = Clock shr 2
   TCycles* = Clock shr 0
 
@@ -62,19 +62,18 @@ proc `-=`(self: var Flags; fs: Flags) {.inline.} = self = self - fs
 type
   Reg8Index = 0..PCH.ord
   Tick* = int
-  Interrupt* = enum
-    VBlank
-    LcdStat
-    Timer
-    Serial
-    Joypad
-  InterruptFlags* = set[Interrupt]
+  InterruptKind* = enum
+    ikVBlank
+    ikLcdStat
+    ikTimer
+    ikSerial
+    ikJoypad
+  InterruptFlags* = set[InterruptKind]
   CpuFlag = enum
     cfIme
     cfSuspend
-  CpuFlags = set[CpuFlag]
   Sm83* = ref object of Memory
-    flags: CpuFlags
+    flags: set[CpuFlag]
     regs: array[Reg8Index, byte]
     mctrl: MemoryCtrl
     freq: int
@@ -333,13 +332,12 @@ func suspend*(self: Sm83) {.inline.} = self.flags.incl cfSuspend
 
 func awake*(self: Sm83) {.inline.} = self.flags.excl cfSuspend
 
-func ime*(self: Sm83): bool {.inline.} = cfIme in self.flags
+func ime*(self: Sm83): bool {.inline.} = self.flags{cfIme}
 
-func `ime=`*(self: Sm83; v: bool) {.inline.} =
-  if v:
-    self.flags.incl cfIme
-  else:
-    self.flags.excl cfIme
+proc `ime=`*(self: Sm83; v: bool) {.inline.} =
+  self.flags{cfIme} = v
+  let msg = if v: "enabled" else: "disabed"
+  info &"all interrupts {msg}"
 
 proc opIllegal(cpu: Sm83; opcode: uint8): int =
   error &"illegal opcode {opcode.hex}"
@@ -1153,11 +1151,10 @@ const opcodes = [
   (t: 16, entry: opRst[0x38]),
 ]
 
-func setInterrupt*(self: Sm83; intr: Interrupt) =
-  self.if.incl intr
-                       
-func clearInterrupt*(self: Sm83; intr: Interrupt) =
-  self.if.excl intr
+func `{}`*(self: Sm83; ik: InterruptKind): bool = self.if{ik}
+func `{}=`*(self: Sm83; ik: InterruptKind; v: bool) = self.if{ik} = v
+func `+=`*(self: Sm83; ik: InterruptKind) = self.if += ik
+func `-=`*(self: Sm83; ik: InterruptKind) = self.if -= ik
 
 proc step*(self: Sm83): Tick {.discardable.} =
   if self.suspended:
@@ -1172,9 +1169,9 @@ proc step*(self: Sm83): Tick {.discardable.} =
     if iset != {}:
       self.ime = false
       self.push(self.pc)
-      let intr = Interrupt(cast[byte](iset).firstSetBit() - 1)
+      let intr = InterruptKind(cast[byte](iset).firstSetBit() - 1)
       info &"Interrupted by {intr}"
-      self.clearInterrupt(intr)
+      self -= intr
       self.pc = InterruptVector + byte(intr.ord shl 3)
 
   let opcode = self.fetch

@@ -229,16 +229,16 @@ proc lcdEnable(self: Ppu; cpu: Sm83) =
   self.rend.setRenderTarget(self.main).errQuit
   self.rend.setRenderDrawColor(ColorWhite.r, ColorWhite.g, ColorWhite.b, ColorWhite.a).errQuit
   self.rend.renderFillRect(unsafeAddr DispRes).errQuit
-  cpu.clearInterrupt(VBlank)
-  cpu.clearInterrupt(LcdStat)
+  cpu -= ikVBlank
+  cpu -= ikLcdStat
   info "LCD enabled"
 
 proc lcdDisable(self: Ppu; cpu: Sm83) =
   self.rend.setRenderTarget(self.main).errQuit
   self.rend.setRenderDrawColor(ColorPowerOff.r, ColorPowerOff.g, ColorPowerOff.b, ColorPowerOff.a).errQuit
   self.rend.renderFillRect(unsafeAddr DispRes).errQuit
-  cpu.clearInterrupt(VBlank)
-  cpu.clearInterrupt(LcdStat)
+  cpu += ikVBlank
+  cpu += ikLcdStat
   info "LCD disabled"
 
 converter toByte(v: Lcdc): byte {.inline.} = cast[byte](v)
@@ -461,11 +461,11 @@ proc stepLy(self: Ppu; cpu: Sm83) =
     self.stat.mode = lmReadOam
   elif self.ly == 144:
     self.stat.mode = lmVBlank
-    cpu.setInterrupt(VBlank)
+    cpu += ikVBlank
   elif self.ly >= 153:
     self.ly = 0
     self.stat.mode = lmReadOam
-    cpu.clearInterrupt(VBlank)
+    cpu -= ikVBlank
 
 proc processHBlankMode(self: Ppu; cpu: Sm83) =
   if self.ticks < 204:

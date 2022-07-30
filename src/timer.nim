@@ -56,6 +56,6 @@ proc process*(self: Timer; cpu: Sm83; ticks: Tick) =
   if not self.started: return
 
   if cpu.ticks > self.targetTick:
-    cpu.setInterrupt(Interrupt.Timer)
+    cpu{ikTimer} = true
     self.updateTargetTick(cpu)
 

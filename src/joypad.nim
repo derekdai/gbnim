@@ -48,10 +48,7 @@ proc handleEvent*(self: Joypad; ev: Event) =
     discard
 
 proc process*(self: Joypad; cpu: Sm83) =
-  if self.keyPressed:
-    cpu.setInterrupt(Interrupt.Joypad)
-  else:
-    cpu.clearInterrupt(Interrupt.Joypad)
+  cpu{ikJoypad} = self.keyPressed
 
   if self.joyp.inputSelect{DirectionKeys} and self.joyp.inputSelect{ButtonKeys}:
     self.joyp.keys{upOrSelect} = (self.kbState[SCANCODE_W] or self.kbState[SCANCODE_G]) == 1
