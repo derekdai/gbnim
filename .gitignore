@@ -9,3 +9,4 @@ outputExpected.txt
 examples/hello
 .gdb_history
 .vscode-ctags
+tests/cpu/tcpu
