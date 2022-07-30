@@ -10,11 +10,11 @@ let ops = gbasm:
   POP AF
 let cpu = newCpu(ops)
 cpu.step 3              # 1
-assert cpu.r(SP) == 0xcfff - 2
+assert cpu[SP] == 0xcfff - 2
 cpu.step
-assert cpu.r(SP) == 0xcfff
+assert cpu[SP] == 0xcfff
 cpu.step
 assert cpu.aluFlags == {AluFlag.C, H}
 cpu.step 2              # 2
-assert cpu.r(A) == 0x88
+assert cpu[A] == 0x88
 assert cpu.aluFlags == {}

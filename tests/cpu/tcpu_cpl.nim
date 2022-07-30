@@ -6,9 +6,9 @@ let ops = gbasm:
   CPL
 let cpu = newCpu(ops)
 cpu.step                # 1
-assert cpu.r(A) == 0xff
+assert cpu[A] == 0xff
 assert cpu.aluFlags == {N,H}
 cpu.step 2              # 2
-assert cpu.r(A) == 0b0101_0101
+assert cpu[A] == 0b0101_0101
 assert cpu.aluFlags == {N,H}
 

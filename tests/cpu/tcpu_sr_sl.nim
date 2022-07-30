@@ -11,10 +11,10 @@ block:
     SLA (HL)
   let cpu = newCpu(ops)
   cpu.step              # 1
-  assert cpu.r(B) == 0
+  assert cpu[B] == 0
   assert cpu.aluFlags == {Z}
   cpu.step 2            # 2
-  assert cpu.r(D) == 0b0101_0100
+  assert cpu[D] == 0b0101_0100
   assert cpu.aluFlags == {AluFlag.C}
   cpu.step 2            # 3
   assert cpu[0xc000] == 0b1000_0001
@@ -36,10 +36,10 @@ block:
     SRL (HL)
   let cpu = newCpu(ops)
   cpu.step              # 1
-  assert cpu.r(E) == 0
+  assert cpu[E] == 0
   assert cpu.aluFlags == {Z}
   cpu.step 2            # 2
-  assert cpu.r(D) == 0b0010_1010
+  assert cpu[D] == 0b0010_1010
   assert cpu.aluFlags == {AluFlag.C}
   cpu.step 2            # 3
   assert cpu[0xc000] == 0b1000_0001
@@ -61,10 +61,10 @@ block:
     SRA (HL)
   let cpu = newCpu(ops)
   cpu.step              # 1
-  assert cpu.r(H) == 0
+  assert cpu[H] == 0
   assert cpu.aluFlags == {Z}
   cpu.step 2            # 2
-  assert cpu.r(D) == 0b0010_1010
+  assert cpu[D] == 0b0010_1010
   assert cpu.aluFlags == {AluFlag.C}
   cpu.step 2            # 3
   assert cpu[0xc000] == 0b1000_0001

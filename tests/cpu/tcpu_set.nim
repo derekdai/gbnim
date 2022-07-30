@@ -12,17 +12,17 @@ let ops = gbasm:
 let cpu = newCpu(ops)
 cpu.aluFlags = {Z, N, C, H}
 cpu.step                # 1
-assert cpu.r(B) == 0b0000_0001
+assert cpu[B] == 0b0000_0001
 assert cpu.aluFlags == {Z, N, C, H}
 cpu.aluFlags = {Z, N}
 cpu.step                # 2
-assert cpu.r(A) == 0b1000_0000
+assert cpu[A] == 0b1000_0000
 assert cpu.aluFlags == {Z, N}
 cpu.aluFlags = {}
 cpu.step 3              # 3
 assert cpu[0xc000] == 0b0001_1000
 assert cpu.aluFlags == {}
 cpu.step 2              # 4
-assert cpu.r(D) == 0xff
+assert cpu[D] == 0xff
 assert cpu.aluFlags == {}
 

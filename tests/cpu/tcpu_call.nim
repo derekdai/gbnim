@@ -43,5 +43,5 @@ assert cpu.pc == 43
 cpu{C} = true         # 9
 cpu.step
 assert cpu.pc == 50
-assert cpu.r(SP) == 0xcff5
+assert cpu[SP] == 0xcff5
 

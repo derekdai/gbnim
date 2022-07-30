@@ -13,21 +13,21 @@ block:
     ADD A,L
   let cpu = newCpu(ops)
   cpu.step()
-  assert cpu.r(A) == 0xf
+  assert cpu[A] == 0xf
   cpu.step()
-  assert cpu.r(B) == 0x1
+  assert cpu[B] == 0x1
   cpu.step()
-  assert cpu.r(A) == 0x10
-  assert cpu.r(B) == 0x1
+  assert cpu[A] == 0x10
+  assert cpu[B] == 0x1
   assert cpu.aluFlags == {AluFlag.H}
   cpu.step(2)
-  assert cpu.r(A) == 0x00
+  assert cpu[A] == 0x00
   assert cpu.aluFlags == {AluFlag.C, Z}
   cpu.step(2)
-  assert cpu.r(A) == 0xff
+  assert cpu[A] == 0xff
   assert cpu.aluFlags == {}
   cpu.step(2)
-  assert cpu.r(A) == 0
+  assert cpu[A] == 0
   assert cpu.aluFlags == {AluFlag.C, AluFlag.H, Z}
 
 block:
@@ -45,27 +45,27 @@ block:
   let cpu = newCpu(ops)
   cpu{H} = true
   cpu.step()                # 1
-  assert cpu.r(A) == 0
+  assert cpu[A] == 0
   assert cpu.aluFlags == {Z}
   cpu{C} = true
   cpu.step()                # 2
-  assert cpu.r(A) == 1
+  assert cpu[A] == 1
   assert cpu.aluFlags == {}
   cpu.step()                # 3
-  assert cpu.r(A) == 0
+  assert cpu[A] == 0
   assert cpu.aluFlags == {Z}
   cpu{C} = true
   cpu.step(2)
-  assert cpu.r(A) == 0x10
+  assert cpu[A] == 0x10
   assert cpu.aluFlags == {AluFlag.H}
   cpu{C} = true           # 4
-  cpu.r(A) = 0
+  cpu[A] = 0
   cpu.step(2)
-  assert cpu.r(A) == 0x00
+  assert cpu[A] == 0x00
   assert cpu.aluFlags == {AluFlag.C, AluFlag.H, Z}
   cpu{C} = true           # 5
   cpu.step(3)
-  assert cpu.r(A) == 0x00
+  assert cpu[A] == 0x00
   assert cpu.aluFlags == {AluFlag.C, AluFlag.H, Z}
 
 block:
@@ -76,7 +76,7 @@ block:
     INC A
   let cpu = newCpu(ops)
   cpu.step()                # 1
-  assert cpu.r(A) == 1
+  assert cpu[A] == 1
   assert cpu.aluFlags == {}
   while true:
     cpu.step()
@@ -84,10 +84,10 @@ block:
       break
     cpu.step()
     if cpu{AluFlag.H}:
-      assert (cpu.r(A) and 0xf) == 0
-  assert cpu.r(A) == 0
+      assert (cpu[A] and 0xf) == 0
+  assert cpu[A] == 0
   assert cpu.aluFlags == {AluFlag.H, Z}
   cpu.step 2                # 2
-  assert cpu.r(A) == 0x10
+  assert cpu[A] == 0x10
   assert cpu.aluFlags == {AluFlag.H}
 

@@ -1,49 +1,44 @@
 import common, gbasm
 
-#[
-v NOP
-v LD
-v INC
-v RLCA
-v ADD
-v DEC
-v RRCA
-v STOP
-v RLA
-v JR
-v RRA
-v ADC
-v SUB
-v SBC
-v AND
-v XOR
-v OR
-v JP
-v RLC
-v RRC
-v RL
-v RR
-v DI
-v EI
-v CP
-v POP
-v PUSH
-v CALL
-v RET
-v CPL
-v SCF
-v CCF
-v SWAP
-v SET
-v BIT
-v RES
-v SLA
-v SRL
-v SRA
-v RST
-  DAA
-]#
+block:
+  let cpu = newSm83()
+  assert cpu.ticks == 0
+  assert cpu.ime == false
 
-let cpu = newSm83()
-assert cpu.ticks == 0
-assert cpu.ime == false
+block:
+  let cpu = newSm83()
+  cpu[BC] = 0x1234
+  assert cpu[B] == 0x12
+  assert cpu[C] == 0x34
+  cpu[DE] = 0x5678
+  assert cpu[D] == 0x56
+  assert cpu[E] == 0x78
+  cpu[HL] = 0x9abc
+  assert cpu[H] == 0x9a
+  assert cpu[L] == 0xbc
+  cpu[AF] = 0xdef0
+  assert cpu[A] == 0xde
+  assert cpu[F] == 0xf0
+
+block:
+  let ops = gbasm:
+    LD BC,0x1234              # 1
+    LD DE,0x5678              # 2
+    LD HL,0x9abc              # 3
+    LD SP,0xcfff              # 4
+    LD HL,0xdef0
+    PUSH HL
+    POP AF
+  let cpu = newCpu(ops)
+  cpu.step                    # 1
+  assert cpu[B] == 0x12
+  assert cpu[C] == 0x34
+  cpu.step                    # 2
+  assert cpu[D] == 0x56
+  assert cpu[E] == 0x78
+  cpu.step                    # 3
+  assert cpu[H] == 0x9a
+  assert cpu[L] == 0xbc
+  cpu.step 4                  # 4
+  assert cpu[A] == 0xde
+  assert cpu[F] == 0xf0

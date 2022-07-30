@@ -17,7 +17,7 @@ let ops = gbasm:
   JP NZ, 100
   JP NZ, 100
 let cpu = newCpu(ops)
-cpu.r(HL) = 50
+cpu[HL] = 50
 cpu.step()
 assert cpu.ticks == 4
 assert cpu.pc == 50

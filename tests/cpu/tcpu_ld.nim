@@ -34,59 +34,59 @@ let ops = gbasm:
   LD E,(HL)
 let cpu = newCpu(ops)
 cpu.step                      # 1
-assert cpu.r(HL) == 0xc000
+assert cpu[HL] == 0xc000
 assert cpu.aluFlags == {}
 cpu.step                      # 2
-assert cpu.r(HL) == 0xc000
+assert cpu[HL] == 0xc000
 assert cpu[0xc000] == 0x1b
 cpu.step                      # 3
-assert cpu.r(HL) == 0xc001
+assert cpu[HL] == 0xc001
 assert cpu[0xc000] == 0
 assert cpu.aluFlags == {}
-cpu.r(A) = 0xcc
+cpu[A] = 0xcc
 cpu.step                      # 4
-assert cpu.r(HL) == 0xc000
+assert cpu[HL] == 0xc000
 assert cpu[0xc001] == 0xcc
 cpu.step 2                    # 5
-assert cpu.r(BC) == 0xc100
+assert cpu[BC] == 0xc100
 assert cpu[0xc100] == 0xcc
 cpu.step                      # 6
-assert cpu.r(C) == 0x1b
+assert cpu[C] == 0x1b
 cpu.step                      # 7
-assert cpu.r(D) == 0
+assert cpu[D] == 0
 cpu.step                      # 8
-assert cpu.r(H) == cpu.r(B)
+assert cpu[H] == cpu[B]
 cpu.step 2                    # 9
-assert cpu.r(A) == 0xdd
-assert cpu[0xff00] == cpu.r(A)
+assert cpu[A] == 0xdd
+assert cpu[0xff00] == cpu[A]
 cpu.step                      # 10
-assert cpu.r(A) == 0
+assert cpu[A] == 0
 cpu.step
-assert cpu.r(A) == 0xdd
-assert cpu.r(A) == cpu[0xff00]
+assert cpu[A] == 0xdd
+assert cpu[A] == cpu[0xff00]
 cpu.step                      # 11
 assert cpu[0xff7f] == 0
-assert cpu.r(C) == 0x7f
+assert cpu[C] == 0x7f
 cpu.step
 assert cpu[0xff7f] == 0xdd
 cpu.step                      # 12
-assert cpu.r(A) == 0
+assert cpu[A] == 0
 cpu.step
-assert cpu.r(A) == 0xdd
+assert cpu[A] == 0xdd
 cpu.step                      # 13
-assert cpu.r(SP) == 0x5678
+assert cpu[SP] == 0x5678
 cpu.step
 assert cpu[0xc050] == 0x78
 assert cpu[0xc051] == 0x56
 cpu.step                      # 14
-assert cpu.r(HL) == 0x5679
+assert cpu[HL] == 0x5679
 cpu.step                      # 15
-assert cpu.r(SP) == 0x5679
+assert cpu[SP] == 0x5679
 cpu.step 4                    # 16
-assert cpu.r(A) == 0xfe
+assert cpu[A] == 0xfe
 assert cpu[0xc123] == 0xfe
 cpu.step 5                    # 17
-assert cpu.r(E) == 0x7c
-assert cpu.r(HL) == 0xc321
+assert cpu[E] == 0x7c
+assert cpu[HL] == 0xc321
 assert cpu[0xc321] == 0x7c
 

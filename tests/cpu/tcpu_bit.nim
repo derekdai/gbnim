@@ -16,11 +16,11 @@ let cpu = newCpu(ops)
 cpu{C} = true
 cpu.step                # 1
 assert cpu.aluFlags == {Z, H, C}
-assert cpu.r(B) == 0
+assert cpu[B] == 0
 cpu{C} = false
 cpu.step                # 2
 assert cpu.aluFlags == {Z, H}
-assert cpu.r(A) == 0
+assert cpu[A] == 0
 cpu{C} = false
 cpu.step 2              # 3
 assert cpu.aluFlags == {AluFlag.H}

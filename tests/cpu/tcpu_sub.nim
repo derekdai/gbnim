@@ -14,19 +14,19 @@ block:
     SUB A,B
   let cpu = newCpu(ops)
   cpu.step                  # 1
-  assert cpu.r(A) == 0
+  assert cpu[A] == 0
   assert cpu.aluFlags == {Z, N}
   cpu.step 3                # 2
-  assert cpu.r(A) == 0
+  assert cpu[A] == 0
   assert cpu.aluFlags == {Z, N}
   cpu.step                  # 3
-  assert cpu.r(A) == 0xff
+  assert cpu[A] == 0xff
   assert cpu.aluFlags == {AluFlag.C, AluFlag.H, N}
   cpu.step 2                # 4
-  assert cpu.r(A) == 0xf
+  assert cpu[A] == 0xf
   assert cpu.aluFlags == {AluFlag.H, N}
   cpu.step 3                # 5
-  assert cpu.r(A) == 0xf0
+  assert cpu[A] == 0xf0
   assert cpu.aluFlags == {AluFlag.C, N}
 
 block:
@@ -39,16 +39,16 @@ block:
     SBC A,0xf               # 4
   let cpu = newCpu(ops)
   cpu.step                  # 1
-  assert cpu.r(A) == 0
+  assert cpu[A] == 0
   assert cpu.aluFlags == {Z, N}
   cpu.step 2                # 2
-  assert cpu.r(A) == 0xff
+  assert cpu[A] == 0xff
   assert cpu.aluFlags == {AluFlag.C, H, N}
   cpu.step 2                # 3
-  assert cpu.r(A) == 0xff
+  assert cpu[A] == 0xff
   assert cpu.aluFlags == {AluFlag.C, H, N}
   cpu.step                  # 4
-  assert cpu.r(A) == 0xef
+  assert cpu[A] == 0xef
   assert cpu.aluFlags == {N, H}
 
 block:
@@ -60,12 +60,12 @@ block:
     DEC C
   let cpu = newCpu(ops)
   cpu.step                  # 1
-  assert cpu.r(A) == 0xff
+  assert cpu[A] == 0xff
   assert cpu.aluFlags == {N, H}
   cpu.step 2                # 2
-  assert cpu.r(B) == 0xf
+  assert cpu[B] == 0xf
   assert cpu.aluFlags == {N, H}
   cpu.step 2                # 3
-  assert cpu.r(C) == 0
+  assert cpu[C] == 0
   assert cpu.aluFlags == {N, Z}
 
