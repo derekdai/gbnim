@@ -14,7 +14,7 @@ assert cpu.r(SP) == 0xcfff - 2
 cpu.step
 assert cpu.r(SP) == 0xcfff
 cpu.step
-assert cpu.f == {Flag.C, H}
+assert cpu.aluFlags == {AluFlag.C, H}
 cpu.step 2              # 2
 assert cpu.r(A) == 0x88
-assert cpu.f == {}
+assert cpu.aluFlags == {}

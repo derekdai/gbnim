@@ -1,16 +1,16 @@
 import std/[logging, strformat]
-import cpu, memory, io, types, utils, setsugar
+import cpu, memory, io, ioregs, types, utils, setsugar
 import sdl2_nim/sdl
 
 type
   Rgba8888 = tuple[r, g, b, a: uint8]
 
 const
-  ColorPowerOff*: Rgba8888 = (r: 181u8, g: 204u8, b: 15u8, a: 0u8)
-  ColorWhite*: Rgba8888 = (r: 155u8, g: 188u8, b: 15u8, a: 0u8)
-  ColorGray*: Rgba8888 = (r: 139u8, g: 172u8, b: 15u8, a: 0u8)
-  ColorDarkGray*: Rgba8888 = (r: 49u8, g: 98u8, b: 49u8, a: 0u8)
-  ColorBlack*: Rgba8888 = (r: 15u8, g: 56u8, b: 15u8, a: 0u8)
+  ColorPowerOff: Rgba8888 = (r: 181u8, g: 204u8, b: 15u8, a: 0u8)
+  ColorWhite: Rgba8888 = (r: 155u8, g: 188u8, b: 15u8, a: 0u8)
+  ColorGray: Rgba8888 = (r: 139u8, g: 172u8, b: 15u8, a: 0u8)
+  ColorDarkGray: Rgba8888 = (r: 49u8, g: 98u8, b: 49u8, a: 0u8)
+  ColorBlack: Rgba8888 = (r: 15u8, g: 56u8, b: 15u8, a: 0u8)
   Colors = [
     ColorWhite,
     ColorGray,
@@ -39,37 +39,6 @@ type
   Tile = array[16, byte]
   Tiles = array[192, Tile]
   TileMap = array[32, array[32, byte]]
-  Shade = enum
-    White
-    LightGray
-    DarkGray
-    Black
-  BgPalette {.bycopy.} = object
-    color0 {.bitsize: 2.}: Shade
-    color1 {.bitsize: 2.}: Shade
-    color2 {.bitsize: 2.}: Shade
-    color3 {.bitsize: 2.}: Shade
-  ObjSize = enum
-    ObjSize8x8
-    ObjSize8x16
-  BgTileMap = enum
-    BgTileMap9800
-    BgTileMap9c00
-  WinTileMap = enum
-    WinTileMap9800
-    WinTileMap9c00
-  BgWinTileData = enum
-    BgWinTileData8800
-    BgWinTileData8000
-  Lcdc {.bycopy.} = object
-    bgDisplay {.bitsize: 1.}: bool
-    objEnable {.bitsize: 1.}: bool
-    objSize {.bitsize: 1.}: ObjSize
-    bgTileMap {.bitsize: 1.}: BgTileMap
-    bgWinTileData {.bitsize: 1.}: BgWinTileData
-    winEnable {.bitsize: 1.}: bool
-    winTileMap {.bitsize: 1.}: WinTileMap
-    lcdEnable {.bitsize: 1.}: bool
 
 converter toRgba(self: Shade): lent Rgba8888 {.inline.} =
   Colors[self.ord]
@@ -110,34 +79,10 @@ func pixel(self: ptr Tile; p: Point): PaletteIndex {.inline.} =
   self.bit1(p) or (self.bit2(p) shl 1)
 
 type
-  LcdMode = enum
-    lmHBlank
-    lmVBlank
-    lmReadOam
-    lmTrans
-  LcdcStatus = object
-    mode {.bitsize: 2.}: LcdMode
-    concidence {.bitsize: 1.}: bool
-    hblankIntr {.bitsize: 1.}: bool
-    vblankIntr {.bitsize: 1.}: bool
-    oamIntr {.bitsize: 1.}: bool
-    coincidenceIntr {.bitsize: 1.}: bool
   PpuFlag = enum
     Refresh
     VRamDirty
   PpuFlags = set[PpuFlag]
-  SpriteAttribute = object
-    cgbPalette {.bitsize: 2.}: byte
-    tileVBank {.bitsize: 1.}: byte
-    palette {.bitsize: 1.}: byte
-    xFlip {.bitsize: 1.}: bool
-    yFlip {.bitsize: 1.}: bool
-    bgWinOverObj {.bitsize: 1.}: bool
-  Sprite = object
-    y: byte
-    x: byte
-    tileIndex: byte
-    attrs: SpriteAttribute
   Ppu* = ref object
     flags: PpuFlags
     ticks: Tick

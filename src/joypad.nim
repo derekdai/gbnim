@@ -1,22 +1,8 @@
 import std/[logging, strformat, strutils]
 import sdl2_nim/sdl
-import io, cpu, types, setsugar
+import io, ioregs, cpu, types
 
 type
-  InputSelect = enum
-    DirectionKeys
-    ButtonKeys
-  InputSelects = set[InputSelect]
-  JoypadKey {.size: 1.} = enum
-    rightOrA
-    leftOrB
-    upOrSelect
-    downOrStart
-  JoypadKeys = iset[JoypadKey]
-  JoypadStatus = object
-    keys {.bitsize: 4.}: JoypadKeys
-    inputSelect {.bitsize: 2.}: InputSelects
-    padding {.bitsize: 2.}: byte
   Joypad* = ref object
     keyPressed: bool
     joyp: JoypadStatus

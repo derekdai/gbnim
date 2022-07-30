@@ -15,19 +15,19 @@ block:
   let cpu = newCpu(ops)
   cpu.step                  # 1
   assert cpu.r(A) == 0
-  assert cpu.f == {Z, N}
+  assert cpu.aluFlags == {Z, N}
   cpu.step 3                # 2
   assert cpu.r(A) == 0
-  assert cpu.f == {Z, N}
+  assert cpu.aluFlags == {Z, N}
   cpu.step                  # 3
   assert cpu.r(A) == 0xff
-  assert cpu.f == {Flag.C, Flag.H, N}
+  assert cpu.aluFlags == {AluFlag.C, AluFlag.H, N}
   cpu.step 2                # 4
   assert cpu.r(A) == 0xf
-  assert cpu.f == {Flag.H, N}
+  assert cpu.aluFlags == {AluFlag.H, N}
   cpu.step 3                # 5
   assert cpu.r(A) == 0xf0
-  assert cpu.f == {Flag.C, N}
+  assert cpu.aluFlags == {AluFlag.C, N}
 
 block:
   let ops = gbasm:
@@ -40,16 +40,16 @@ block:
   let cpu = newCpu(ops)
   cpu.step                  # 1
   assert cpu.r(A) == 0
-  assert cpu.f == {Z, N}
+  assert cpu.aluFlags == {Z, N}
   cpu.step 2                # 2
   assert cpu.r(A) == 0xff
-  assert cpu.f == {Flag.C, H, N}
+  assert cpu.aluFlags == {AluFlag.C, H, N}
   cpu.step 2                # 3
   assert cpu.r(A) == 0xff
-  assert cpu.f == {Flag.C, H, N}
+  assert cpu.aluFlags == {AluFlag.C, H, N}
   cpu.step                  # 4
   assert cpu.r(A) == 0xef
-  assert cpu.f == {N, H}
+  assert cpu.aluFlags == {N, H}
 
 block:
   let ops = gbasm:
@@ -61,11 +61,11 @@ block:
   let cpu = newCpu(ops)
   cpu.step                  # 1
   assert cpu.r(A) == 0xff
-  assert cpu.f == {N, H}
+  assert cpu.aluFlags == {N, H}
   cpu.step 2                # 2
   assert cpu.r(B) == 0xf
-  assert cpu.f == {N, H}
+  assert cpu.aluFlags == {N, H}
   cpu.step 2                # 3
   assert cpu.r(C) == 0
-  assert cpu.f == {N, Z}
+  assert cpu.aluFlags == {N, Z}
 

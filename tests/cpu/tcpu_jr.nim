@@ -36,7 +36,7 @@ block:
   let ops = gbasm:
     JR NZ, 2 
   let cpu = newCpu(ops)
-  cpu.f{Z} = true
+  cpu{Z} = true
   cpu.step()
   assert cpu.ticks == 8
   assert cpu.pc == 2
@@ -58,7 +58,7 @@ block:
     JR NZ, 2 
     JR Z, 2 
   let cpu = newCpu(ops)
-  cpu.f{Z} = true
+  cpu{Z} = true
   cpu.step()
   assert cpu.ticks == 8
   assert cpu.pc == 2
@@ -83,7 +83,7 @@ block:
     JR NC, 2 
     JR C, 2 
   let cpu = newCpu(ops)
-  cpu.f{C} = true
+  cpu{C} = true
   cpu.step()
   assert cpu.ticks == 8
   assert cpu.pc == 2

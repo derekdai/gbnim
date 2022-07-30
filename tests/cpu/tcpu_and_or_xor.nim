@@ -13,16 +13,16 @@ block:
   let cpu = newCpu(ops)
   cpu.step                  # 1
   assert cpu.r(A) == 0
-  assert cpu.f == {Z, H}
+  assert cpu.aluFlags == {Z, H}
   cpu.step 2                # 2
   assert cpu.r(A) == 0
-  assert cpu.f == {Z, H}
+  assert cpu.aluFlags == {Z, H}
   cpu.step 2                # 3
   assert cpu.r(A) == 0
-  assert cpu.f == {Z, H}
+  assert cpu.aluFlags == {Z, H}
   cpu.step 2                # 4
   assert cpu.r(A) == 0b01010101
-  assert cpu.f == {Flag.H}
+  assert cpu.aluFlags == {AluFlag.H}
 
 block:
   let ops = gbasm:
@@ -35,14 +35,14 @@ block:
   let cpu = newCpu(ops)
   cpu.step                  # 1
   assert cpu.r(A) == 0
-  assert cpu.f == {Z}
+  assert cpu.aluFlags == {Z}
   cpu.step 2                # 2
   assert cpu.r(A) == 1
-  assert cpu.f == {}
+  assert cpu.aluFlags == {}
   cpu.step 3                # 3
   assert cpu.r(C) == 0b10101010
   assert cpu.r(A) == cpu.r(C)
-  assert cpu.f == {}
+  assert cpu.aluFlags == {}
 
 block:
   let ops = gbasm:
@@ -54,15 +54,15 @@ block:
   let cpu = newCpu(ops)
   cpu.step                  # 1
   assert cpu.r(A) == 0
-  assert cpu.f == {Z}
+  assert cpu.aluFlags == {Z}
   cpu.step 2                # 2
   assert cpu.r(C) == 0b10101010
   assert cpu.r(A) == cpu.r(C)
-  assert cpu.f == {}
+  assert cpu.aluFlags == {}
   cpu.step                  # 3
   assert cpu.r(A) == 0b11111111
-  assert cpu.f == {}
+  assert cpu.aluFlags == {}
   cpu.step                  # 4
   assert cpu.r(A) == 0b11110000
-  assert cpu.f == {}
+  assert cpu.aluFlags == {}
 

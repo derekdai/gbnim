@@ -6,13 +6,13 @@ let ops = gbasm:
   CCF                   # 3
   SCF                   # 4
 let cpu = newCpu(ops)
-assert cpu.f == {}
+assert cpu.aluFlags == {}
 cpu.step                # 1
-assert cpu.f == {Flag.C}
+assert cpu.aluFlags == {AluFlag.C}
 cpu.step                # 2
-assert cpu.f == {}
+assert cpu.aluFlags == {}
 cpu.step                # 3
-assert cpu.f == {Flag.C}
+assert cpu.aluFlags == {AluFlag.C}
 cpu.step                # 4
-assert cpu.f == {Flag.C}
+assert cpu.aluFlags == {AluFlag.C}
 

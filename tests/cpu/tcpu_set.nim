@@ -10,19 +10,19 @@ let ops = gbasm:
   SET 0,D
   SET 7,D
 let cpu = newCpu(ops)
-cpu.f = {Z, N, C, H}
+cpu.aluFlags = {Z, N, C, H}
 cpu.step                # 1
 assert cpu.r(B) == 0b0000_0001
-assert cpu.f == {Z, N, C, H}
-cpu.f = {Z, N}
+assert cpu.aluFlags == {Z, N, C, H}
+cpu.aluFlags = {Z, N}
 cpu.step                # 2
 assert cpu.r(A) == 0b1000_0000
-assert cpu.f == {Z, N}
-cpu.f = {}
+assert cpu.aluFlags == {Z, N}
+cpu.aluFlags = {}
 cpu.step 3              # 3
 assert cpu[0xc000] == 0b0001_1000
-assert cpu.f == {}
+assert cpu.aluFlags == {}
 cpu.step 2              # 4
 assert cpu.r(D) == 0xff
-assert cpu.f == {}
+assert cpu.aluFlags == {}
 

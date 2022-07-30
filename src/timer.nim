@@ -1,15 +1,7 @@
 import std/[logging, strformat]
-import cpu, io, types
+import cpu, io, ioregs, types
 
 type
-  TimerClock = enum
-    tc4096
-    tc262144
-    tc65536
-    tc16384
-  TimerControl {.size: sizeof(byte).} = object
-    clockSel {.bitsize: 2.}: TimerClock
-    started {.bitsize: 1.}: bool
   Timer* = ref object
     divi: byte
     tima: byte

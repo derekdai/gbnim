@@ -28,14 +28,14 @@ assert cpu.pc == 60
 cpu.step()
 assert cpu.ticks == 32
 assert cpu.pc == 63
-cpu.f{C} = true
+cpu{C} = true
 cpu.step()
 assert cpu.ticks == 48
 assert cpu.pc == 70
 cpu.step()
 assert cpu.ticks == 60
 assert cpu.pc == 73
-cpu.f{C} = false
+cpu{C} = false
 cpu.step()
 assert cpu.ticks == 76
 assert cpu.pc == 80
@@ -43,14 +43,14 @@ assert cpu.pc == 80
 cpu.step()
 assert cpu.ticks == 88
 assert cpu.pc == 83
-cpu.f{Z} = true
+cpu{Z} = true
 cpu.step()
 assert cpu.ticks == 104
 assert cpu.pc == 90
 cpu.step()
 assert cpu.ticks == 116
 assert cpu.pc == 93
-cpu.f{Z} = false
+cpu{Z} = false
 cpu.step()
 assert cpu.ticks == 132
 assert cpu.pc == 100

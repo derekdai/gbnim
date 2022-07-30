@@ -1,4 +1,4 @@
-import memory, setsugar, types, utils
+import memory, ioregs, setsugar, types, utils
 import std/[bitops, logging, strformat]
 
 const
@@ -9,66 +9,37 @@ const
   InterruptVector = Address(0x0040)
 
 type
-  NilFlag = distinct int
+  NilAluFlag = distinct int
 
-const NilFlagTag = NilFlag(0)
+const NilAluFlagTag = NilAluFlag(0)
 
 type
   Register8* = enum
-    B, C,
-    D, E,
-    H, L,
-    F, A,
+    B, C, D, E, H, L, F, A,
     SPL, SPH,
     PCL, PCH,
   Register16* = enum
-    BC,
-    DE,
-    HL,
-    AF,
-    SP,
-    PC
-  Flag* {.size: sizeof(byte).} = enum
-    Pad0,
-    Pad1,
-    Pad2,
-    Pad3,
-    C,
-    H,
-    N,
-    Z,
-  Flags* = set[Flag]
-  InvFlag* {.size: sizeof(byte).} = distinct Flag
-  FlagTypes =
-    Flag |
-    InvFlag |
-    NilFlag
+    BC, DE, HL, AF,
+    SP, PC
+  AluFlag* {.size: sizeof(byte).} = enum
+    Unused0, Unused1, Unused2, Unused3,
+    C, H, N, Z,
+  AluFlags* = set[AluFlag]
+  InvAluFlag* {.size: sizeof(byte).} = distinct AluFlag
+  AluFlagTypes =
+    AluFlag |
+    InvAluFlag |
+    NilAluFlag
 
-proc `+=`(self: var Flags; f: Flag) = self.incl f
-proc `+=`(self: var Flags; f: InvFlag) = self.excl Flag(f.ord)
-proc `-=`(self: var Flags; f: Flag) = self.excl f
-proc `-=`(self: var Flags; f: InvFlag) = self.incl Flag(f.ord)
-proc contains(self: Flags; f: InvFlag): bool = Flag(f.ord) notin self
-proc `{}=`*(self: var Flags; f: Flag or InvFlag; v: bool) =
-  if v: self += f else: self -= f
-proc `{}`*(self: Flags; f: Flag or InvFlag): bool =
-  f in self
-proc `{}`*(self: Flags; f: NilFlag): bool = true
 converter toBool(v: SomeInteger): bool =
   assert v in {0..1}
   cast[bool](v)
-proc `-=`(self: var Flags; fs: Flags) {.inline.} = self = self - fs
+proc upgrade(v: uint8): uint16 = typeof(result)(v)
+proc upgrade(v: uint16): uint32 = typeof(result)(v)
 
 type
   Reg8Index = 0..PCH.ord
   Tick* = int
-  InterruptKind* = enum
-    ikVBlank
-    ikLcdStat
-    ikTimer
-    ikSerial
-    ikJoypad
-  InterruptFlags* = set[InterruptKind]
   CpuFlag = enum
     cfIme
     cfSuspend
@@ -81,9 +52,31 @@ type
     ie: InterruptFlags
     `if`: InterruptFlags
 
+proc contains*(self: AluFlags; f: InvAluFlag): bool {.inline.} =
+  AluFlag(f.ord) notin self
+
+func aluFlags*(self: Sm83): var AluFlags {.inline.} =
+  cast[ptr AluFlags](addr self.regs[F.ord])[]
+func `aluFlags=`*(self: Sm83; flags: AluFlags) {.inline.} =
+  self.regs[F.ord] = cast[byte](flags)
+
+proc `+=`*(self: Sm83; f: AluFlag) {.inline.} = self.aluFlags.incl f
+proc `-=`*(self: Sm83; f: AluFlag) {.inline.} = self.aluFlags.excl f
+proc `+=`*(self: Sm83; f: InvAluFlag) {.inline.} = self -= AluFlag(f.ord)
+proc `-=`*(self: Sm83; f: InvAluFlag) {.inline.} = self += AluFlag(f.ord)
+proc `+=`*(self: Sm83; fs: AluFlags) {.inline.} =
+  self.aluFlags = self.aluFlags + fs
+proc `-=`(self: Sm83; fs: AluFlags) {.inline.} =
+  self.aluFlags = self.aluFlags - fs
+proc `{}=`*(self: Sm83; f: AluFlag or InvAluFlag; v: bool) {.inline.} =
+  if v: self += f else: self -= f
+proc `{}`*(self: Sm83; f: AluFlag or InvAluFlag): bool {.inline.} =
+  f in self.aluFlags
+proc `{}`*(self: Sm83; f: NilAluFlag): bool = true
+
 const
-  NZ = InvFlag(Z.ord)
-  NC = InvFlag(Flag.C.ord)
+  NZ = InvAluFlag(Z.ord)
+  NC = InvAluFlag(AluFlag.C.ord)
 
 type
   Const =
@@ -100,16 +93,13 @@ proc value(c: WithCarry; cpu: Sm83): auto =
     WithCarry.T(c.ord).value(cpu)
   else:
     WithCarry.T(c).value(cpu)
-proc carry(_: WithCarry; cpu: Sm83): uint8 = uint8(cpu.f{C})
+proc carry(_: WithCarry; cpu: Sm83): uint8 = uint8(cpu{C})
 proc carry[T](_: T; cpu: Sm83): uint8 = 0
 proc `$`(c: WithCarry): string =
   when typeof(c).T is enum:
     &"WithCarry({WithCarry.T(c.ord)})"
   else:
     &"WithCarry({WithCarry.T(c)})"
-
-proc upgrade(v: uint8): uint16 = typeof(result)(v)
-proc upgrade(v: uint16): uint32 = typeof(result)(v)
 
 method load*(self: Sm83; a: Address): byte {.locks: "unknown".} =
   info &"IE: {self.ie}"
@@ -162,9 +152,6 @@ func `pc=`*(self: Sm83; a: Address) {.inline.} = self.r(PC) = a
 
 func sp*(self: Sm83): var Address {.inline.} = self.r(SP)
 
-func f*(self: Sm83): var Flags {.inline.} = cast[ptr Flags](addr self.regs[F])[]
-func `f=`*(self: Sm83; flags: Flags) {.inline.} = self.regs[F] = cast[byte](flags)
-
 proc fetch(self: Sm83): byte {.inline.} =
   result = load[byte](self.mctrl, self.pc)
   self.pc.inc
@@ -204,8 +191,8 @@ proc value(i: Indir[(Address, Register8)]; cpu: Sm83): uint8 {.inline.} =
 proc setValue(i: Indir[(Address, Register8)]; cpu: Sm83; v: uint8) {.inline.} =
   cpu.mctrl[i.toT[0] + cpu.r(i.toT[1])] = v
 
-proc setValue(f: Flag | InvFlag; cpu: Sm83; v: bool) {.inline.} = cpu.f{f} = v
-proc setValue(f: NilFlag; cpu: Sm83; v: bool) {.inline.} = discard
+proc setValue(f: AluFlag | InvAluFlag; cpu: Sm83; v: bool) {.inline.} = cpu{f} = v
+proc setValue(f: NilAluFlag; cpu: Sm83; v: bool) {.inline.} = discard
 
 type
   ImmediateS8 = distinct int8
@@ -254,15 +241,9 @@ proc value(pair: Reg16Imme8; cpu: Sm83): uint16 {.inline.} =
   let v2 = uint32(cpu.r(pair[0]))
   let r = v1 + v2
   if pair[0] == SP:
-    if r shr 16 != 0:
-      cpu.f.incl C
-    else:
-      cpu.f.excl C
-    if ((v1 and 0xf) + (v2 and 0xf)) shr 4 != 0:
-      cpu.f.incl H
-    else:
-      cpu.f.excl H
-    cpu.f -= {Z, N}
+    cpu.aluFlags = {}
+    cpu{C} = r shr 16 != 0
+    cpu{H} = ((v1 and 0xf) + (v2 and 0xf)) shr 4 != 0
   return uint16(r and 0xffff)
 
 proc value(_: ImmediateS8; cpu: Sm83): int8 {.inline.} = cast[int8](cpu.fetch())
@@ -313,15 +294,15 @@ proc `$`(_: Immediate16): string = "u16"
 proc `$`(r: Reg16Inc): string = &"{Register16(r.ord)}+"
 proc `$`(r: Reg16Dec): string = &"{Register16(r.ord)}-"
 proc `$`[T](i: Indir[T]): string = &"({i.toT})"
-proc `$`(f: InvFlag): string =
-  let f = Flag(f.ord)
+proc `$`(f: InvAluFlag): string =
+  let f = AluFlag(f.ord)
   if f == Z:
-    "NZ"
+    result = "NZ"
   elif f == C:
-    "NC"
+    result = "NC"
   else:
-    ""
-proc `$`(f: NilFlag): string = "{}"
+    assert false
+proc `$`(f: NilAluFlag): string = "{}"
 
 type
   OpcodeEntry = proc(cpu: Sm83; opcode: uint8): int {.nimcall.}
@@ -357,17 +338,17 @@ proc opLd[D: static AddrModes; S: static AddrModes2](cpu: Sm83; opcode: uint8): 
   let v = S.value(cpu)
   D.setValue(cpu, v)
 
-proc opJr[S: static AddrModes2; F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
+proc opJr[S: static AddrModes2; F: static AluFlagTypes](cpu: Sm83; opcode: uint8): int =
   let v = S.value(cpu)
   debug &"JR {F},{v}"
-  if cpu.f{F}:
+  if cpu{F}:
     result = 4
     cpu.pc += v
 
-proc opJp[S: static AddrModes; F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
+proc opJp[S: static AddrModes; F: static AluFlagTypes](cpu: Sm83; opcode: uint8): int =
   debug &"JP {F},{S}"
   let v = S.value(cpu)
-  if cpu.f{F}:
+  if cpu{F}:
     cpu.pc = v
     result = 4
 
@@ -379,20 +360,20 @@ proc opPush[S: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"PUSH {S}"
   cpu.push S.value(cpu)
 
-proc opRet[F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
+proc opRet[F: static AluFlagTypes](cpu: Sm83; opcode: uint8): int =
   if opcode == 0xd9:
     debug &"RETI"
     cpu.ime = true
   else:
     debug &"RET {F}"
-  if cpu.f{F}:
+  if cpu{F}:
     result = 12
     cpu.pc = cpu.pop
 
-proc opCall[F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
+proc opCall[F: static AluFlagTypes](cpu: Sm83; opcode: uint8): int =
   debug &"CALL {F},u16"
   let a = cpu.fetch16()
-  if cpu.f{F}:
+  if cpu{F}:
     result = 12
     cpu.push cpu.pc
     cpu.pc = a
@@ -400,9 +381,9 @@ proc opCall[F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
 proc opBit[B: static BitsRange[uint8]; S: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"BIT {B},{S}"
   let v = S.value(cpu)
-  cpu.f -= N
-  cpu.f += H
-  cpu.f{Z} = not v.testBit(B)
+  cpu -= N
+  cpu += H
+  cpu{Z} = not v.testBit(B)
 
 proc opRes[B: static BitsRange[uint8]; S: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"RES {B},{S}"
@@ -414,80 +395,80 @@ proc opSet[B: static BitsRange[uint8]; S: static AddrModes](cpu: Sm83; opcode: u
 
 proc opCpl(cpu: Sm83; opcode: uint8): int =
   debug "CPL"
-  cpu.f = cpu.f + {N, H}
+  cpu += {N, H}
   cpu.r(A) = not cpu.r(A)
 
 proc opSwap[T: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"SWAP {T}"
   let v = T.value(cpu)
-  cpu.f = if v == 0: {Z} else: {}
+  cpu.aluFlags = if v == 0: {Z} else: {}
   T.setValue(cpu, (v shl 4) or (v shr 4))
 
-proc opRl[T: static AddrModes; F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
+proc opRl[T: static AddrModes; F: static AluFlagTypes](cpu: Sm83; opcode: uint8): int =
   var v = T.value(cpu)
   let b = v shr 7
   var r = v shl 1
   if opcode.testBit(4):
     debug &"RL {T}"
-    r = r or byte(cpu.f{C})
+    r = r or byte(cpu{C})
   else:
     debug &"RLC {T}"
     r = r or b
-  cpu.f = if b != 0: {Flag.C} else: {}
+  cpu.aluFlags = if b != 0: {AluFlag.C} else: {}
   F.setValue(cpu, r == 0)
   T.setValue(cpu, r)
   debug &"{T.value(cpu):b}"
 
-proc opRr[T: static AddrModes; F: static FlagTypes](cpu: Sm83; opcode: uint8): int =
+proc opRr[T: static AddrModes; F: static AluFlagTypes](cpu: Sm83; opcode: uint8): int =
   var v = T.value(cpu)
   let b = v and 1
   var r = v shr 1
   if opcode.testBit(4):
     debug &"RR {T}"
-    r = r or (byte(cpu.f{C}) shl 7)
+    r = r or (byte(cpu{C}) shl 7)
   else:
     debug &"RRC {T}"
     r = r or (b shl 7)
   debug &"=== {r:b}"
-  cpu.f = if b != 0: {Flag.C} else: {}
+  cpu.aluFlags = if b != 0: {AluFlag.C} else: {}
   F.setValue(cpu, r == 0)
   T.setValue(cpu, r)
 
 proc opDaa(cpu: Sm83; opcode: uint8): int =
   # `daa` 是在兩個 BCD `add`/`sub` 之後對結果進行 normalize 用
   debug "DAA"
-  if cpu.f{N}:
+  if cpu{N}:
     cpu.r(A) = (cpu.r(A) + (
-      if cpu.f{C} and cpu.f{H}:
+      if cpu{C} and cpu{H}:
         0x9a
-      elif cpu.f{C}:
+      elif cpu{C}:
         0xa0
-      elif cpu.f{H}:
-        cpu.f -= C
+      elif cpu{H}:
+        cpu -= C
         0xfa
       else:
-        cpu.f -= C
+        cpu -= C
         0
     )) and 0xff
   else:
     let ln = cpu.r(A) and 0xf
-    let lr = ln + (if cpu.f{H} or ln > 9: 0x6 else: 0)
+    let lr = ln + (if cpu{H} or ln > 9: 0x6 else: 0)
     var hr = uint16(cpu.r(A) and 0xf0) + (lr and 0b10000)
-    if hr > 0x90 or cpu.f{C}:
+    if hr > 0x90 or cpu{C}:
       hr += 0x60
     let r = hr or (lr and 0xf)
-    cpu.f{C} = (r shr 8) != 0
+    cpu{C} = (r shr 8) != 0
     cpu.r(A) = byte(r and 0xff)
-  cpu.f -= H
-  cpu.f{Z} = cpu.r(A) == 0
+  cpu -= H
+  cpu{Z} = cpu.r(A) == 0
 
 proc opScf(cpu: Sm83; opcode: uint8): int =
   debug "SCF"
-  cpu.f{C} = true
+  cpu{C} = true
 
 proc opCcf(cpu: Sm83; opcode: uint8): int =
   debug "CCF"
-  cpu.f{C} = not cpu.f{C}
+  cpu{C} = not cpu{C}
 
 proc opSub[T: static AddrModes; S: static AddrModes2](cpu: Sm83; opcode: uint8): int =
   #           8bit 16bit
@@ -507,12 +488,12 @@ proc opSub[T: static AddrModes; S: static AddrModes2](cpu: Sm83; opcode: uint8):
   let r = v1 - v2 - c
   T.setValue(cpu, typeof(v1)(r))
   when T isnot Register16 or S isnot Const:
-    cpu.f{N} = true
-    cpu.f{H} = (v1 and 0xf) < ((v2 and 0xf) + c)
+    cpu{N} = true
+    cpu{H} = (v1 and 0xf) < ((v2 and 0xf) + c)
     when T isnot Register16:
-      cpu.f{Z} = r == 0
+      cpu{Z} = r == 0
     when S isnot Const:
-      cpu.f{C} = v1 < (v2 + c)
+      cpu{C} = v1 < (v2 + c)
 
 func halfCarried(v1, v2, c: uint8): bool {.inline.} = ((v1 and 0xf) + (v2 and 0xf) + c).testBit(4)
 func halfCarried(v1, v2, c: uint16): bool {.inline.} = ((v1 and 0xfff) + (v2 and 0xfff) + c).testBit(12)
@@ -550,19 +531,19 @@ proc opAdd[T: static AddrModes; S: static AddrModes2](cpu: Sm83; opcode: uint8):
   let r = v1.upgrade + v2 + S.carry(cpu)
   T.setValue(cpu, typeof(v1)(r))
   when T isnot Register16 or S isnot Const:
-    cpu.f{N} = false
-    cpu.f{H} = halfCarried(v1, v2, S.carry(cpu))
+    cpu{N} = false
+    cpu{H} = halfCarried(v1, v2, S.carry(cpu))
     when T isnot Register16:
-      cpu.f{Z} = typeof(v1)(r) == 0
+      cpu{Z} = typeof(v1)(r) == 0
     when S isnot Const:
-      cpu.f{C} = r.carried
+      cpu{C} = r.carried
 
 proc opAnd[S: static AddrModes2](cpu: Sm83; opcode: uint8): int =
   debug &"AND A,{S}"
   let v1 = A.value(cpu)
   let v2 = S.value(cpu)
   let r = v1 and v2
-  cpu.f = if r == 0: {Z,H} else: {Flag.H}
+  cpu.aluFlags = if r == 0: {Z,H} else: {AluFlag.H}
   A.setValue(cpu, r)
 
 proc opXor[S: static AddrModes2](cpu: Sm83; opcode: uint8): int =
@@ -570,7 +551,7 @@ proc opXor[S: static AddrModes2](cpu: Sm83; opcode: uint8): int =
   let v1 = A.value(cpu)
   let v2 = S.value(cpu)
   let r = v1 xor v2
-  cpu.f = if r == 0: {Z} else: {}
+  cpu.aluFlags = if r == 0: {Z} else: {}
   A.setValue(cpu, r)
 
 proc opOr[S: static AddrModes2](cpu: Sm83; opcode: uint8): int =
@@ -578,17 +559,17 @@ proc opOr[S: static AddrModes2](cpu: Sm83; opcode: uint8): int =
   let v1 = A.value(cpu)
   let v2 = S.value(cpu)
   let r = v1 or v2
-  cpu.f = if r == 0: {Z} else: {}
+  cpu.aluFlags = if r == 0: {Z} else: {}
   A.setValue(cpu, r)
 
 proc opCp[S: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"CP A,{S}"
   let v1 = cpu.r(A)
   let v2 = S.value(cpu)
-  cpu.f = {N}
-  cpu.f{C} = v1 < v2
-  cpu.f{H} = (v1 and 0xf) < (v2 and 0xf)
-  cpu.f{Z} = v1 == v2
+  cpu.aluFlags = {N}
+  cpu{C} = v1 < v2
+  cpu{H} = (v1 and 0xf) < (v2 and 0xf)
+  cpu{Z} = v1 == v2
 
 proc opIme(cpu: Sm83; opcode: uint8): int =
   cpu.flags{cfIme} =
@@ -602,25 +583,25 @@ proc opIme(cpu: Sm83; opcode: uint8): int =
 proc opSra[T: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"SRA {T}"
   let v = T.value(cpu)
-  cpu.f{C} = v.testBit(0)
+  cpu{C} = v.testBit(0)
   let r = (v shr 1) or (v and 0b1000_0000)
-  cpu.f{Z} = r == 0
+  cpu{Z} = r == 0
   T.setValue(cpu, r)
 
 proc opSrl[T: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"SRL {T}"
   let v = T.value(cpu)
-  cpu.f{C} = v.testBit(0)
+  cpu{C} = v.testBit(0)
   let r = v shr 1
-  cpu.f{Z} = r == 0
+  cpu{Z} = r == 0
   T.setValue(cpu, r)
 
 proc opSla[T: static AddrModes](cpu: Sm83; opcode: uint8): int =
   debug &"SLA {T}"
   let v = T.value(cpu)
-  cpu.f{C} = v shr 7
+  cpu{C} = v shr 7
   let r = v shl 1
-  cpu.f{Z} = r == 0
+  cpu{Z} = r == 0
   T.setValue(cpu, r)
 
 proc opRst[N: static Address](cpu: Sm83; opcode: uint8): int =
@@ -900,7 +881,7 @@ const opcodes = [
   (t: 4, entry: opAdd[B, 1u8]),
   (t: 4, entry: opSub[B, 1u8]),
   (t: 8, entry: opLd[B, Immediate8Tag]),
-  (t: 4, entry: opRl[A, NilFlagTag]),
+  (t: 4, entry: opRl[A, NilAluFlagTag]),
   (t: 20, entry: opLd[Immediate16Tag.indir, SP]),
   (t: 8, entry: opAdd[HL, BC]),
   (t: 8, entry: opLd[A, BC.indir]),
@@ -908,7 +889,7 @@ const opcodes = [
   (t: 4, entry: opAdd[Register8.C, 1u8]),
   (t: 4, entry: opSub[Register8.C, 1u8]),
   (t: 8, entry: opLd[Register8.C, Immediate8Tag]),
-  (t: 4, entry: opRr[A, NilFlagTag]),
+  (t: 4, entry: opRr[A, NilAluFlagTag]),
   (t: 4, entry: opSuspend),         # 0x10
   (t: 12, entry: opLd[DE, Immediate16Tag]),
   (t: 8, entry: opLd[DE.indir, A]),
@@ -916,15 +897,15 @@ const opcodes = [
   (t: 4, entry: opAdd[D, 1u8]),
   (t: 4, entry: opSub[D, 1u8]),
   (t: 8, entry: opLd[D, Immediate8Tag]),
-  (t: 4, entry: opRl[A, NilFlagTag]),
-  (t: 8, entry: opJr[ImmediateS8Tag, NilFlagTag]),
+  (t: 4, entry: opRl[A, NilAluFlagTag]),
+  (t: 8, entry: opJr[ImmediateS8Tag, NilAluFlagTag]),
   (t: 8, entry: opAdd[HL, DE]),
   (t: 8, entry: opLd[A, DE.indir]),
   (t: 8, entry: opSub[DE, 1u8]),
   (t: 4, entry: opAdd[E, 1u8]),
   (t: 4, entry: opSub[E, 1u8]),
   (t: 8, entry: opLd[E, Immediate8Tag]),
-  (t: 4, entry: opRr[A, NilFlagTag]),
+  (t: 4, entry: opRr[A, NilAluFlagTag]),
   (t: 8, entry: opJr[ImmediateS8Tag, NZ]),         # 0x20
   (t: 12, entry: opLd[HL, Immediate16Tag]),
   (t: 8, entry: opLd[Reg16Inc(HL).indir, A]),
@@ -949,7 +930,7 @@ const opcodes = [
   (t: 12, entry: opSub[HL.indir, 1u8]),
   (t: 8, entry: opLd[HL.indir, Immediate8Tag]),
   (t: 4, entry: opScf),
-  (t: 8, entry: opJr[ImmediateS8Tag, Flag.C]),
+  (t: 8, entry: opJr[ImmediateS8Tag, AluFlag.C]),
   (t: 8, entry: opAdd[HL, SP]),
   (t: 8, entry: opLd[A, Reg16Dec(HL).indir]),
   (t: 8, entry: opSub[SP, 1u8]),
@@ -1088,17 +1069,17 @@ const opcodes = [
   (t: 8, entry: opRet[NZ]),         # 0xc0
   (t: 12, entry: opPop[BC]),
   (t: 12, entry: opJp[Immediate16Tag, NZ]),
-  (t: 12, entry: opJp[Immediate16Tag, NilFlagTag]),
+  (t: 12, entry: opJp[Immediate16Tag, NilAluFlagTag]),
   (t: 12, entry: opCall[NZ]),
   (t: 16, entry: opPush[BC]),
   (t: 8, entry: opAdd[A, Immediate8Tag]),
   (t: 16, entry: opRst[0x00]),
   (t: 8, entry: opRet[Z]),
-  (t: 4, entry: opRet[NilFlagTag]),
+  (t: 4, entry: opRet[NilAluFlagTag]),
   (t: 12, entry: opJp[Immediate16Tag, Z]),
   (t: 4, entry: prefixCb),
   (t: 12, entry: opCall[Z]),
-  (t: 12, entry: opCall[NilFlagTag]),
+  (t: 12, entry: opCall[NilAluFlagTag]),
   (t: 8, entry: opAdd[A, WithCarry(Immediate8Tag)]),
   (t: 16, entry: opRst[0x08]),
   (t: 8, entry: opRet[NC]),         # 0xd0
@@ -1109,11 +1090,11 @@ const opcodes = [
   (t: 16, entry: opPush[DE]),
   (t: 8, entry: opSub[A, Immediate8Tag]),
   (t: 16, entry: opRst[0x10]),
-  (t: 8, entry: opRet[Flag.C]),
-  (t: 4, entry: opRet[NilFlagTag]),
-  (t: 12, entry: opJp[Immediate16Tag, Flag.C]),
+  (t: 8, entry: opRet[AluFlag.C]),
+  (t: 4, entry: opRet[NilAluFlagTag]),
+  (t: 12, entry: opJp[Immediate16Tag, AluFlag.C]),
   (t: 0, entry: opIllegal),
-  (t: 12, entry: opCall[Flag.C]),
+  (t: 12, entry: opCall[AluFlag.C]),
   (t: 0, entry: opIllegal),
   (t: 8, entry: opSub[A, WithCarry(Immediate8Tag)]),
   (t: 16, entry: opRst[0x18]),
@@ -1126,7 +1107,7 @@ const opcodes = [
   (t: 8, entry: opAnd[Immediate8Tag]),
   (t: 16, entry: opRst[0x20]),
   (t: 16, entry: opAdd[SP, ImmediateS8Tag]),
-  (t: 0, entry: opJp[HL, NilFlagTag]), # t: 0 is not typo
+  (t: 0, entry: opJp[HL, NilAluFlagTag]), # t: 0 is not typo
   (t: 16, entry: opLd[Immediate16Tag.indir, A]),
   (t: 0, entry: opIllegal),
   (t: 0, entry: opIllegal),
@@ -1162,7 +1143,7 @@ proc step*(self: Sm83): Tick {.discardable.} =
       return
     self.awake
 
-  debug &"| PC:{self.pc.hex} SP:{self.sp.hex} A:{self.r(A).hex} F:{self.f} BC:{self.r(BC).hex} DE:{self.r(DE).hex} HL:{self.r(HL).hex} IE:{self.ie} IF:{self.if} Stat:{self.flags}"
+  debug &"| PC:{self.pc.hex} SP:{self.sp.hex} A:{self.r(A).hex} F:{self.aluFlags} BC:{self.r(BC).hex} DE:{self.r(DE).hex} HL:{self.r(HL).hex} IE:{self.ie} IF:{self.if} Stat:{self.flags}"
 
   if self.ime:
     let iset = self.ie * self.if

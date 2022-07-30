@@ -18,14 +18,14 @@ block:
     CP A,(HL)
   let cpu = newCpu(ops)
   cpu.step                # 1
-  assert cpu.f == {Z, N}
+  assert cpu.aluFlags == {Z, N}
   cpu.step 2              # 2
-  assert cpu.f == {N, C}
+  assert cpu.aluFlags == {N, C}
   cpu.step 2              # 3
-  assert cpu.f == {N, C, H}
+  assert cpu.aluFlags == {N, C, H}
   cpu.step 3              # 4
-  assert cpu.f == {N, H}
+  assert cpu.aluFlags == {N, H}
   cpu.step 2              # 5
-  assert cpu.f == {N, C, H}
+  assert cpu.aluFlags == {N, C, H}
   cpu.step 4              # 6
-  assert cpu.f == {Z, N}
+  assert cpu.aluFlags == {Z, N}

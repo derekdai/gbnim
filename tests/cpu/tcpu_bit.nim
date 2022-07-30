@@ -13,23 +13,23 @@ let ops = gbasm:
   RES 3,(HL)
   BIT 3,(HL)
 let cpu = newCpu(ops)
-cpu.f{C} = true
+cpu{C} = true
 cpu.step                # 1
-assert cpu.f == {Z, H, C}
+assert cpu.aluFlags == {Z, H, C}
 assert cpu.r(B) == 0
-cpu.f{C} = false
+cpu{C} = false
 cpu.step                # 2
-assert cpu.f == {Z, H}
+assert cpu.aluFlags == {Z, H}
 assert cpu.r(A) == 0
-cpu.f{C} = false
+cpu{C} = false
 cpu.step 2              # 3
-assert cpu.f == {Flag.H}
+assert cpu.aluFlags == {AluFlag.H}
 cpu.step
-assert cpu.f == {Flag.H}
+assert cpu.aluFlags == {AluFlag.H}
 cpu.step
-assert cpu.f == {Z, H}
+assert cpu.aluFlags == {Z, H}
 cpu.step 3              # 4
-assert cpu.f == {Flag.H}
+assert cpu.aluFlags == {AluFlag.H}
 cpu.step 2
-assert cpu.f == {Z, H}
+assert cpu.aluFlags == {Z, H}
 

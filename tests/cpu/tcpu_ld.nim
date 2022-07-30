@@ -35,14 +35,14 @@ let ops = gbasm:
 let cpu = newCpu(ops)
 cpu.step                      # 1
 assert cpu.r(HL) == 0xc000
-assert cpu.f == {}
+assert cpu.aluFlags == {}
 cpu.step                      # 2
 assert cpu.r(HL) == 0xc000
 assert cpu[0xc000] == 0x1b
 cpu.step                      # 3
 assert cpu.r(HL) == 0xc001
 assert cpu[0xc000] == 0
-assert cpu.f == {}
+assert cpu.aluFlags == {}
 cpu.r(A) = 0xcc
 cpu.step                      # 4
 assert cpu.r(HL) == 0xc000

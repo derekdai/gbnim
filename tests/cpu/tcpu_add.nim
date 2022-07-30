@@ -19,16 +19,16 @@ block:
   cpu.step()
   assert cpu.r(A) == 0x10
   assert cpu.r(B) == 0x1
-  assert cpu.f == {Flag.H}
+  assert cpu.aluFlags == {AluFlag.H}
   cpu.step(2)
   assert cpu.r(A) == 0x00
-  assert cpu.f == {Flag.C, Z}
+  assert cpu.aluFlags == {AluFlag.C, Z}
   cpu.step(2)
   assert cpu.r(A) == 0xff
-  assert cpu.f == {}
+  assert cpu.aluFlags == {}
   cpu.step(2)
   assert cpu.r(A) == 0
-  assert cpu.f == {Flag.C, Flag.H, Z}
+  assert cpu.aluFlags == {AluFlag.C, AluFlag.H, Z}
 
 block:
   let ops = gbasm:
@@ -43,30 +43,30 @@ block:
     LD H,0b01010101
     ADC A,H
   let cpu = newCpu(ops)
-  cpu.f{H} = true
+  cpu{H} = true
   cpu.step()                # 1
   assert cpu.r(A) == 0
-  assert cpu.f == {Z}
-  cpu.f{C} = true
+  assert cpu.aluFlags == {Z}
+  cpu{C} = true
   cpu.step()                # 2
   assert cpu.r(A) == 1
-  assert cpu.f == {}
+  assert cpu.aluFlags == {}
   cpu.step()                # 3
   assert cpu.r(A) == 0
-  assert cpu.f == {Z}
-  cpu.f{C} = true
+  assert cpu.aluFlags == {Z}
+  cpu{C} = true
   cpu.step(2)
   assert cpu.r(A) == 0x10
-  assert cpu.f == {Flag.H}
-  cpu.f{C} = true           # 4
+  assert cpu.aluFlags == {AluFlag.H}
+  cpu{C} = true           # 4
   cpu.r(A) = 0
   cpu.step(2)
   assert cpu.r(A) == 0x00
-  assert cpu.f == {Flag.C, Flag.H, Z}
-  cpu.f{C} = true           # 5
+  assert cpu.aluFlags == {AluFlag.C, AluFlag.H, Z}
+  cpu{C} = true           # 5
   cpu.step(3)
   assert cpu.r(A) == 0x00
-  assert cpu.f == {Flag.C, Flag.H, Z}
+  assert cpu.aluFlags == {AluFlag.C, AluFlag.H, Z}
 
 block:
   let ops = gbasm:
@@ -77,17 +77,17 @@ block:
   let cpu = newCpu(ops)
   cpu.step()                # 1
   assert cpu.r(A) == 1
-  assert cpu.f == {}
+  assert cpu.aluFlags == {}
   while true:
     cpu.step()
     if cpu.pc > 2:
       break
     cpu.step()
-    if cpu.f{Flag.H}:
+    if cpu{AluFlag.H}:
       assert (cpu.r(A) and 0xf) == 0
   assert cpu.r(A) == 0
-  assert cpu.f == {Flag.H, Z}
+  assert cpu.aluFlags == {AluFlag.H, Z}
   cpu.step 2                # 2
   assert cpu.r(A) == 0x10
-  assert cpu.f == {Flag.H}
+  assert cpu.aluFlags == {AluFlag.H}
 
