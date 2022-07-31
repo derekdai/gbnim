@@ -32,10 +32,10 @@ func `region`*(self: Memory): lent MemoryRegion = self.region
 func `region=`*(self: Memory; region: MemoryRegion) = self.region = region
 
 method load*(self: Memory; a: Address): byte {.base, locks: "unknown".} =
-  assert false
+  error "Memory.load should not be calld"
 
 method store*(self: Memory; a: Address; value: byte) {.base, locks: "unknown".} =
-  assert false
+  error "Memory.store should not be calld"
 
 type
   MemoryCtrl* = ref object
@@ -123,7 +123,7 @@ method load*(self: EchoRam; a: Address): byte {.locks: "unknown".} =
   if mem != nil:
     result = mem.load(target)
   else:
-    warn &"address 0x{a:04x} is not mapped"
+    warn &"load from unmapped address 0x{a:04x}"
 
 method store*(self: EchoRam; a: Address; value: byte) {.locks: "unknown".} =
   self.mctrl.store(self.target + (a - self.region.a), value)
