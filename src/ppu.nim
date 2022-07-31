@@ -174,31 +174,29 @@ proc lcdEnable(self: Ppu; cpu: Sm83) =
   self.rend.setRenderTarget(self.main).errQuit
   self.rend.setRenderDrawColor(ColorWhite.r, ColorWhite.g, ColorWhite.b, ColorWhite.a).errQuit
   self.rend.renderFillRect(unsafeAddr DispRes).errQuit
-  cpu -= ikVBlank
-  cpu -= ikLcdStat
+  cpu -= {ikVBlank, ikLcdStat}
   info "LCD enabled"
 
 proc lcdDisable(self: Ppu; cpu: Sm83) =
   self.rend.setRenderTarget(self.main).errQuit
   self.rend.setRenderDrawColor(ColorPowerOff.r, ColorPowerOff.g, ColorPowerOff.b, ColorPowerOff.a).errQuit
   self.rend.renderFillRect(unsafeAddr DispRes).errQuit
-  cpu += ikVBlank
-  cpu += ikLcdStat
+  cpu -= {ikVBlank, ikLcdStat}
   info "LCD disabled"
 
-converter toByte(v: Lcdc): byte {.inline.} = cast[byte](v)
-proc loadLcdc(self: Ppu): byte = self.lcdc
+proc loadLcdc(self: Ppu): byte = cast[byte](self.lcdc)
 proc storeLcdc(self: Ppu; cpu: Sm83; s: byte) =
-  if s == self.lcdc:
+  let lcdc = cast[Lcdc](s)
+  if lcdc == self.lcdc:
     return
 
-  if not self.lcdc.lcdEnable and cast[Lcdc](s).lcdEnable:
+  if not self.lcdEnabled and lcdc.lcdEnable:
     self.lcdEnable(cpu)
-  elif self.lcdc.lcdEnable and not cast[Lcdc](s).lcdEnable:
+  elif self.lcdEnabled and not lcdc.lcdEnable:
     self.lcdDisable(cpu)
 
   self.flags += Refresh
-  self.lcdc = cast[Lcdc](s)
+  self.lcdc = lcdc
   info &"LCDC: {self.lcdc}"
 
 proc loadStat(self: Ppu): byte = cast[byte](self.stat)

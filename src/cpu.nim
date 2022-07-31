@@ -324,7 +324,7 @@ func ime*(self: Sm83): bool {.inline.} = self.flags{cfIme}
 proc `ime=`*(self: Sm83; v: bool) {.inline.} =
   self.flags{cfIme} = v
   let msg = if v: "enabled" else: "disabed"
-  info &"all interrupts {msg}"
+  debug &"all interrupts {msg}"
 
 proc opIllegal(cpu: Sm83; opcode: uint8): int =
   error &"illegal opcode {opcode.hex}"
@@ -578,7 +578,7 @@ proc opCp[S: static AddrModes](cpu: Sm83; opcode: uint8): int =
   cpu{Z} = v1 == v2
 
 proc opIme(cpu: Sm83; opcode: uint8): int =
-  cpu.flags{cfIme} =
+  cpu.ime =
     if opcode == 0xf3:
       debug "DI"
       false
@@ -1141,7 +1141,9 @@ const opcodes = [
 func `{}`*(self: Sm83; ik: InterruptKind): bool = self.if{ik}
 func `{}=`*(self: Sm83; ik: InterruptKind; v: bool) = self.if{ik} = v
 func `+=`*(self: Sm83; ik: InterruptKind) = self.if += ik
+func `+=`*(self: Sm83; iks: InterruptFlags) = self.if = self.if + iks
 func `-=`*(self: Sm83; ik: InterruptKind) = self.if -= ik
+func `-=`*(self: Sm83; iks: InterruptFlags) = self.if = self.if - iks
 
 proc step*(self: Sm83): Tick {.discardable.} =
   if self.suspended:
@@ -1154,10 +1156,10 @@ proc step*(self: Sm83): Tick {.discardable.} =
   if self.ime:
     let iset = self.ie * self.if
     if iset != {}:
+      let intr = InterruptKind(cast[byte](iset).firstSetBit() - 1)
+      debug &"{intr} interrupt"
       self.ime = false
       self.push(self.pc)
-      let intr = InterruptKind(cast[byte](iset).firstSetBit() - 1)
-      info &"Interrupted by {intr}"
       self -= intr
       self.pc = InterruptVector + byte(intr.ord shl 3)
 
