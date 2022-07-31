@@ -1,5 +1,5 @@
 import std/[strformat, strutils]
-import cpu, memory
+import cpu, memory, io
 export cpu, memory
 
 proc newCpu*(opcodes: seq[byte]): Sm83 =
@@ -9,8 +9,9 @@ proc newCpu*(opcodes: seq[byte]): Sm83 =
   result.memCtrl.map(bootrom)
   let wram = newRam(WRAM0)
   result.memCtrl.map(wram)
-  let io = newRam(IOREGS)
-  result.memCtrl.map(io)
+  let iomem = newIoMemory(result)
+  iomem.setHandler(IoIf, loadIf, storeIf)
+  result.memCtrl.map(iomem)
 
 proc step*(self: Sm83; n: int) =
   for i in 0..<n:
