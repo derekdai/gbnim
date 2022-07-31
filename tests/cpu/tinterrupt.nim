@@ -15,25 +15,26 @@ block:
     DI                      # 2
     EI                      # 3
     NOP
-    INC A                   # 4
+    LD SP,0xcfff            # 4
+    INC A
     DEC C
     LD (0xff00+C),A
     NOP
     LD C,0x0f               # 5
     LD (0xff00+C),A
   let cpu = newCpu(ops)
-  cpu.step
+  cpu.step                  # 1
   assert cpu.ime == true
-  cpu.step
+  cpu.step                  # 2
   assert cpu.ime == false
-  cpu.step 2
+  cpu.step 2                # 3
   assert cpu.ime == true
   assert cpu.pc == 4
-  cpu.step 4
+  cpu.step 5                # 4
   assert cpu.ime == true
   assert cpu[0xffff] == 1
-  assert cpu.pc == 8
-  cpu.step 3
+  assert cpu.pc == 11
+  cpu.step 3                # 5
   assert cpu.ime == false
   assert cpu[0xffff] == 1
   assert cpu[0xff0f] == 0

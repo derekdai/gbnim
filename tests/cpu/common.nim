@@ -9,6 +9,8 @@ proc newCpu*(opcodes: seq[byte]): Sm83 =
   result.memCtrl.map(bootrom)
   let wram = newRam(WRAM0)
   result.memCtrl.map(wram)
+  let hram = newRam(HRAM)
+  result.memCtrl.map(hram)
   let iomem = newIoMemory(result)
   iomem.setHandler(IoIf, loadIf, storeIf)
   result.memCtrl.map(iomem)

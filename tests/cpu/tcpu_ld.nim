@@ -1,5 +1,6 @@
 import gbasm
 import common
+import std/logging
 
 let ops = gbasm:
   LD HL,0xc000                # 1
@@ -12,10 +13,10 @@ let ops = gbasm:
   LD D,(HL)                   # 7
   LD H,B                      # 8
   LD A,0xdd                   # 9
-  LD (0xff00),A
+  LD (0xff80),A
   XOR A,A                     # 10
-  LD A,(0xff00)
-  LD C,0x7f                   # 11
+  LD A,(0xff80)
+  LD C,0x88                   # 11
   LD (0xff00+C),A
   XOR A,A                     # 12
   LD A,(0xff00+C)
@@ -58,17 +59,17 @@ cpu.step                      # 8
 assert cpu[H] == cpu[B]
 cpu.step 2                    # 9
 assert cpu[A] == 0xdd
-assert cpu[0xff00] == cpu[A]
+assert cpu[0xff80] == cpu[A]
 cpu.step                      # 10
 assert cpu[A] == 0
 cpu.step
 assert cpu[A] == 0xdd
-assert cpu[A] == cpu[0xff00]
+assert cpu[A] == cpu[0xff80]
 cpu.step                      # 11
-assert cpu[0xff7f] == 0
-assert cpu[C] == 0x7f
+assert cpu[0xff88] == 0
+assert cpu[C] == 0x88
 cpu.step
-assert cpu[0xff7f] == 0xdd
+assert cpu[0xff88] == 0xdd
 cpu.step                      # 12
 assert cpu[A] == 0
 cpu.step
