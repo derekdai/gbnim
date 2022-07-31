@@ -1,6 +1,6 @@
 import std/[logging, strformat]
 import cpu, memory, io, ioregs, types, utils, setsugar
-import sdl2_nim/sdl
+import sdl2_nim/sdl except Palette
 
 type
   Rgba8888 = tuple[r, g, b, a: uint8]
@@ -80,15 +80,35 @@ func pixel(self: ptr Tile; p: Point): PaletteIndex {.inline.} =
 
 type
   PpuFlag = enum
-    Refresh
-    VRamDirty
+    Refresh                   ## 只更新 main view, 
+    VRamDirty                 ## tile data, palette, tile map 變動時, 需要變動的 cache 更多, 需進一步優化
   PpuFlags = set[PpuFlag]
+  TileVramBank = enum
+    Bank0
+    Bank1
+  ObjPalette = enum
+    Obp0
+    Obp1
+  ObjBgPriority = enum
+    ObjAboveBg
+    ObjBehindBg
+  ObjAttr= object
+    cgbPalette {.bitsize: 3.}: byte
+    cgbTileVramBank {.bitsize: 1.}: TileVramBank
+    palette {.bitsize: 1.}: ObjPalette
+    xFlip {.bitsize: 1.}: bool
+    yFlip {.bitsize: 1.}: bool
+    objBgPrio {.bitsize: 1.}: ObjBgPriority
+  Obj = tuple
+    y, x: byte
+    tileNum: byte
+    attr: ObjAttr
   Ppu* = ref object
     flags: PpuFlags
     ticks: Tick
     scx, scy: byte
     wx, wy: byte
-    bgp, obp0, obp1: BgPalette
+    bgp, obp0, obp1: Palette
     lcdc: Lcdc
     ly, lyc: byte
     stat: LcdcStatus
@@ -120,51 +140,44 @@ proc `=destroy`(self: var typeof(Ppu()[])) =
   if self.win != nil:
     self.rend.destroyWindow()
 
-func bgColor(self: Ppu; i: PaletteIndex): Shade {.inline.} =
-  case i:
-  of 0: self.bgp.color0
-  of 1: self.bgp.color1
-  of 2: self.bgp.color2
-  of 3: self.bgp.color3
-
 proc loadBgp(self: Ppu): byte = cast[byte](self.bgp)
 proc storeBgp(self: Ppu; s: byte) =
-  self.bgp = cast[BgPalette](s)
+  self.bgp = cast[Palette](s)
   info &"BGP: {self.bgp}"
 
 proc loadObp0(self: Ppu): byte = cast[byte](self.obp0)
 proc storeObp0(self: Ppu; s: byte) =
-  self.obp0 = cast[BgPalette](s)
+  self.obp0 = cast[Palette](s)
   info &"OBP0: {self.bgp}"
 
 proc loadObp1(self: Ppu): byte = cast[byte](self.obp1)
 proc storeObp1(self: Ppu; s: byte) =
-  self.obp1 = cast[BgPalette](s)
+  self.obp1 = cast[Palette](s)
   info &"OBP1: {self.bgp}"
 
 proc loadScy(self: Ppu): byte = self.scy
 proc storeScy(self: Ppu; s: byte) =
   self.scy = s
   self.flags += Refresh
-  info &"SCY: {self.scy}"
+  debug &"SCY: {self.scy}"
 
 proc loadScx(self: Ppu): byte = self.scx
 proc storeScx(self: Ppu; s: byte) =
   self.scx = s
   self.flags += Refresh
-  info &"SCX: {self.scx}"
+  debug &"SCX: {self.scx}"
 
 proc loadWy(self: Ppu): byte = self.wy
 proc storeWy(self: Ppu; s: byte) =
   self.wy = s
   self.flags += Refresh
-  info &"WY: {self.wy}"
+  debug &"WY: {self.wy}"
 
 proc loadWx(self: Ppu): byte = self.wx
 proc storeWx(self: Ppu; s: byte) =
   self.wx = s
   self.flags += Refresh
-  info &"WX: {self.wx}"
+  debug &"WX: {self.wx}"
 
 func lcdEnabled(self: Ppu): bool {.inline.} = self.lcdc.lcdEnable
 
@@ -173,16 +186,19 @@ proc lcdEnable(self: Ppu; cpu: Sm83) =
   self.stat.mode = lmReadOam
   self.rend.setRenderTarget(self.main).errQuit
   self.rend.setRenderDrawColor(ColorWhite.r, ColorWhite.g, ColorWhite.b, ColorWhite.a).errQuit
-  self.rend.renderFillRect(unsafeAddr DispRes).errQuit
+  self.rend.renderFillRect(nil).errQuit
   cpu -= {ikVBlank, ikLcdStat}
   info "LCD enabled"
 
 proc lcdDisable(self: Ppu; cpu: Sm83) =
   self.rend.setRenderTarget(self.main).errQuit
   self.rend.setRenderDrawColor(ColorPowerOff.r, ColorPowerOff.g, ColorPowerOff.b, ColorPowerOff.a).errQuit
-  self.rend.renderFillRect(unsafeAddr DispRes).errQuit
+  self.rend.renderFillRect(nil).errQuit
   cpu -= {ikVBlank, ikLcdStat}
-  info "LCD disabled"
+  if self.stat.mode != lmVBlank:
+    warn "LCD disabled outside VBlank period"
+  else:
+    info "LCD disabled"
 
 proc loadLcdc(self: Ppu): byte = cast[byte](self.lcdc)
 proc storeLcdc(self: Ppu; cpu: Sm83; s: byte) =
@@ -358,6 +374,13 @@ proc bgTileMap(self: Ppu): lent TileMap {.inline.} =
   let offset = self.lcdc.bgTileMap.toAddr - VRAM.a
   cast[ptr TileMap](addr self.vram[offset])[]
 
+func bgColor(self: Ppu; i: PaletteIndex): Shade {.inline.} =
+  case i:
+  of 0: self.bgp.color0
+  of 1: self.bgp.color1
+  of 2: self.bgp.color2
+  of 3: self.bgp.color3
+
 proc drawTile(self: Ppu; tileNum: byte; topLeft: Point) =
   let tile = self.tile(tileNum)
   for y in 0..<Tile.height:
@@ -388,14 +411,67 @@ proc updateTileMapView(self: Ppu) =
   self.rend.setRenderTarget(self.winMap).errQuit
   self.drawTileMap(self.winTileMap)
 
+proc updateBackground(self: Ppu) =
+  if self.lcdc.bgDisplay:
+    let srcRect = Rect(x: self.scx.int32, y: self.scy.int32, w: 256 - self.scx, h: 256 - self.scy)
+    let destRect = Rect(x: 0, y: 0, w: 256 - self.scx, h: 256 - self.scy)
+    self.rend.renderCopy(self.bgMap, unsafeAddr srcRect, unsafeAddr destRect).errQuit
+  else:
+    self.rend.setRenderDrawColor(ColorWhite.r, ColorWhite.g, ColorWhite.b, ColorWhite.a).errQuit
+    self.rend.renderFillRect(nil).errQuit
+
+proc updateWindow(self: Ppu) =
+  if not self.lcdc.winDisplay:
+    return
+  let srcRect = Rect(x: self.wx.int32, y: self.wy.int32, w: 256, h: 256)
+  let destRect = Rect(x: -7, y: 0, w: 256, h: 256)
+  self.rend.renderCopy(self.winMap, unsafeAddr srcRect, unsafeAddr destRect).errQuit
+
+func objColor(self: Ppu; i: PaletteIndex; obj: Obj): Shade {.inline.} =
+  let p =
+    if obj.attr.palette == Obp0:
+      self.obp0
+    else:
+      self.obp1
+  case i:
+  of 0: p.color0
+  of 1: p.color1
+  of 2: p.color2
+  of 3: p.color3
+
+proc tile(self: Ppu; obj: Obj): ptr Tile =
+  addr cast[ptr UncheckedArray[Tile]](addr self.vram[0])[obj.tileNum]
+
+proc drawObj(self: Ppu; obj: Obj) =
+  let tile = self.tile(obj)
+  for y in 0..<Tile.height:
+    for x in 0..<Tile.width:
+      let pix = tile.pixel((x, y))
+      if pix == 0:
+        continue
+      let c = self.objColor(pix, obj).toRgba
+      self.rend.setRenderDrawColor(c.r, c.g, c.b, c.a).errQuit
+      self.rend.renderDrawPoint(obj.x + x - 8, obj.y + y - 16).errQuit
+
+iterator objs(self: Ppu): Obj =
+  let s = cast[ptr UncheckedArray[Obj]](addr self.oam[0])
+  for i in 0..<(OAM.len div sizeof(Obj)):
+    yield s[i]
+
+proc updateSprites(self: Ppu) =
+  if not self.lcdc.objDisplay:
+    return
+  for o in self.objs:
+    self.drawObj(o)
+
 proc updateMainView(self: Ppu) =
   if not self.lcdEnabled:
     return
 
   self.rend.setRenderTarget(self.main).errQuit
-  let srcRect = Rect(x: self.scx.int32, y: self.scy.int32, w: 256, h: 256)
-  let destRect = Rect(x: 0, y: 0, w: 256, h: 256)
-  self.rend.renderCopy(self.bgMap, unsafeAddr srcRect, unsafeAddr destRect).errQuit
+  self.updateBackground()
+  self.updateWindow()
+  self.updateSprites()
 
 proc stepLy(self: Ppu; cpu: Sm83) =
   self.ly.inc
@@ -456,52 +532,3 @@ proc process*(self: Ppu; cpu: Sm83; ticks: Tick) =
     self.rend.renderPresent()
 
     self.flags -= Refresh
-
-  #case self.stat.mode
-  #of lmHBlank:
-  #  if self.ticks >= 207:
-  #    self.ticks -= 207
-  #    self.ly.inc
-  #    self.stat.concidence = self.ly == self.lyc
-  #    statIntr = statIntr or (self.stat.concidence and self.stat.coincidenceIntr)
-  #    self.stat.mode =
-  #      if self.ly == 144:
-  #        cpu.setInterrupt(VBlank)
-  #        statIntr = statIntr or self.stat.vblankIntr
-
-  #        self.updateTileMapView()
-  #        self.updateMainView()
-
-  #        self.rend.setRenderTarget(nil).errQuit
-  #        self.rend.renderCopy(self.main, nil, unsafeAddr MainView).errQuit
-  #        self.rend.renderCopy(self.tiles, nil, unsafeAddr TilesView).errQuit
-  #        self.rend.renderCopy(self.bgMap, nil, unsafeAddr BgTileMapView).errQuit
-  #        self.rend.renderCopy(self.winMap, nil, unsafeAddr WinTileMapView).errQuit
-  #        self.rend.renderPresent()
-
-  #        lmVBlank
-  #      else:
-  #        statIntr = statIntr or self.stat.oamIntr
-  #        lmReadOam
-  #of lmVBlank:
-  #  if self.ticks >= 456:
-  #    self.ticks -= 456
-  #    self.ly.inc
-  #    if self.ly >= 153:
-  #      self.stat.mode = lmReadOam
-  #      statIntr = statIntr or self.stat.oamIntr
-  #      cpu.clearInterrupt(VBlank)
-  #of lmReadOam:
-  #  if self.ticks >= 83:
-  #    self.stat.mode = lmTrans
-  #    self.ticks -= 83
-  #of lmTrans:
-  #  if self.ticks >= 229:
-  #    self.stat.mode = lmHBlank
-  #    statIntr = statIntr or self.stat.hblankIntr
-  #    self.ticks -= 229
-
-  #if statIntr:
-  #  cpu.setInterrupt(LcdStat)
-  #else:
-  #  cpu.clearInterrupt(LcdStat)

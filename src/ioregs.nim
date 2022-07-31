@@ -44,7 +44,7 @@ type
     LightGray
     DarkGray
     Black
-  BgPalette* {.bycopy.} = object
+  Palette* {.bycopy.} = object
     color0* {.bitsize: 2.}: Shade
     color1* {.bitsize: 2.}: Shade
     color2* {.bitsize: 2.}: Shade
@@ -63,11 +63,11 @@ type
     BgWinTileData8000
   Lcdc* {.bycopy.} = object
     bgDisplay* {.bitsize: 1.}: bool
-    objEnable* {.bitsize: 1.}: bool
+    objDisplay* {.bitsize: 1.}: bool
     objSize* {.bitsize: 1.}: ObjSize
     bgTileMap* {.bitsize: 1.}: BgTileMap
     bgWinTileData* {.bitsize: 1.}: BgWinTileData
-    winEnable* {.bitsize: 1.}: bool
+    winDisplay* {.bitsize: 1.}: bool
     winTileMap* {.bitsize: 1.}: WinTileMap
     lcdEnable* {.bitsize: 1.}: bool
   LcdMode* = enum
