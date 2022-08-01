@@ -79,23 +79,23 @@ proc disableBootRom*(self: MemoryCtrl) {.inline.} =
 when not declared(getBacktrace):
   func getBacktrace*(): string {.inline.} = discard
 
-proc load*[T: SomeInteger](self: MemoryCtrl; a: Address): T {.inline.} =
-  var mem = self.lookup(a)
-  if mem != nil:
-    for n in 0u16..<sizeof(T):
+proc load*[T: SomeInteger](self: MemoryCtrl; a: Address): T =
+  debug &"| {result.hex} < {a.hex}"
+  for n in 0u16..<sizeof(T):
+    var mem = self.lookup(a + n)
+    if mem != nil:
       result = result or (mem.load(a + n).T shl (n shl 3))
-    debug &"| {result.hex} < {a.hex}"
-  else:
-    warn &"unhandled load from 0x{a:04x}"
+    else:
+      warn &"unhandled load from 0x{a:04x}"
 
-proc store*[T: SomeInteger](self: MemoryCtrl; a: Address; v: T) {.inline.} =
-  var mem = self.lookup(a)
-  if mem != nil:
-    for n in 0u16..<sizeof(T):
+proc store*[T: SomeInteger](self: MemoryCtrl; a: Address; v: T) =
+  debug &"| {v.hex} > {a.hex}"
+  for n in 0u16..<sizeof(T):
+    let mem = self.lookup(a + n)
+    if mem != nil:
       mem.store(a + n, byte((v shr (n shl 3)) and 0xff))
-    debug &"| {v.hex} > {a.hex}"
-  else:
-    warn &"unhandled store to 0x{a:04x}"
+    else:
+      warn &"unhandled store to 0x{a:04x}"
 
 proc `[]`*(self: MemoryCtrl; a: Address): byte {.inline.} = load[typeof(
     result)](self, a)
