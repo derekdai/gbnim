@@ -1,5 +1,28 @@
-import setsugar
+import setsugar, types
 export setsugar
+
+const
+  IoJoyp*: Address = 0xff00
+  ## Timer and divider registers
+  IoDiv*: Address = 0xff04
+  IoTima*: Address = 0xff05
+  IoTma*: Address = 0xff06
+  IoTac*: Address = 0xff07
+  ## Interrupts
+  IoIf*: Address = 0xff0f
+  ## LCD control registers
+  IoLcdc*: Address = 0xff40
+  IoStat*: Address = 0xff41
+  IoScy*: Address = 0xff42
+  IoScx*: Address = 0xff43
+  IoWy*: Address = 0xff4a
+  IoWx*: Address = 0xff4b
+  IoLy*: Address = 0xff44
+  IoLyc*: Address = 0xff45
+  IoBgp*: Address = 0xff47
+  IoObp0*: Address = 0xff48
+  IoObp1*: Address = 0xff49
+  IoBootRom*: Address = 0xff50
 
 type
   InterruptKind* = enum

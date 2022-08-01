@@ -1,5 +1,5 @@
 import std/[logging, strformat, options]
-import cpu, timer, memory, cartridge, ppu, joypad, io, types, utils
+import cpu, timer, memory, cartridge, ppu, joypad, io, ioregs, types, utils
 import sdl2_nim/sdl
 
 const

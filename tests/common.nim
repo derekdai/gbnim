@@ -1,5 +1,5 @@
 import std/[strformat, strutils]
-import cpu, memory, io, timer
+import cpu, memory, io, ioregs, timer
 export cpu, memory
 
 type
