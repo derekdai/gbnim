@@ -32,12 +32,6 @@ type
     cpu {.cursor.}: Sm83
     entries: array[IOREGS.len, IoMemEntry]
 
-proc ioLoadUnimpl(a: Address) =
-  error &"I/O load not implemented for 0x{a:04x}"
-
-proc ioStoreUnimpl(a: Address) =
-  error &"I/O store not implemented for 0x{a:04x}"
-
 proc loadBootRomState(cpu: Sm83; a: Address): byte = discard
 
 proc storeBootRomState(cpu: Sm83; a: Address; s: byte) =
@@ -54,8 +48,8 @@ proc newIoMemory*(cpu: Sm83): IoMemory =
   result.cpu = cpu
 
   let unimpl: IoMemEntry = (
-    IoLoad(proc(cpu: Sm83; a: Address): byte = ioLoadUnimpl(a)),
-    IoStore(proc(cpu: Sm83; a: Address; s: byte) = ioStoreUnimpl(a))
+    IoLoad(proc(cpu: Sm83; a: Address): byte = error &"I/O load not implemented for 0x{a:04x}"),
+    IoStore(proc(cpu: Sm83; a: Address; s: byte) = error &"I/O store not implemented for 0x{a:04x}")
   )
   for e in result.entries.mitems:
     e = unimpl
